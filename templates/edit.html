@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Editing: {{ page_name }}{% endblock %}
+
+{% block content %}
+    <div class="flex justify-between items-center mb-4">
+        <h1 class="text-2xl font-bold text-gray-800">Editing: <span class="text-blue-600">{{ page_name }}</span></h1>
+        
+        <div class="space-x-3">
+            <input type="file" id="imageInput" class="hidden" accept="image/*">
+            <button type="button" onclick="document.getElementById('imageInput').click()" class="text-sm bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300">
+                🖼️ Insert Image
+            </button>
+            <a href="/wiki/{{ page_name }}" class="text-sm text-gray-500 hover:text-gray-700 hover:underline">Cancel</a>
+        </div>
+    </div>
+
+    <form method="POST" action="/edit/{{ page_name }}" class="flex flex-col flex-grow">
+        <textarea 
+            id="markdown-editor"
+            name="content" 
+            rows="20" 
+            class="w-full p-4 border border-gray-300 rounded-lg bg-gray-50 text-gray-900 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none mb-4"
+        >{{ content }}</textarea>
+        
+        <div class="flex justify-end">
+            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700">Save Page</button>
+        </div>
+    </form>
+
+    <script>
+        // Handle the image upload logic
+        document.getElementById('imageInput').addEventListener('change', async function() {
+            if (this.files.length === 0) return;
+            
+            const file = this.files[0];
+            const formData = new FormData();
+            formData.append("file", file);
+            
+            try {
+                const response = await fetch("/upload-image", {
+                    method: "POST",
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    insertAtCursor(data.markdown);
+                } else {
+                    alert("Image upload failed.");
+                }
+            } catch (error) {
+                console.error("Error:", error);
+            }
+        });
+
+        // Helper function to inject text exactly where the cursor is
+        function insertAtCursor(text) {
+            const editor = document.getElementById('markdown-editor');
+            const startPos = editor.selectionStart;
+            const endPos = editor.selectionEnd;
+            editor.value = editor.value.substring(0, startPos) + text + "\n" + editor.value.substring(endPos, editor.value.length);
+            editor.focus();
+            editor.selectionStart = startPos + text.length + 1;
+            editor.selectionEnd = startPos + text.length + 1;
+        }
+    </script>
+{% endblock %}

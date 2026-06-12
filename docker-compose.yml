@@ -1,0 +1,11 @@
+services:
+  wiki:
+    build: .
+    container_name: pi_wiki
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./articles:/app/articles
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

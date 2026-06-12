@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Check{% endblock %}
+
+{% block content %}
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-white">🧠 Review Due Cards</h1>
+    </div>
+
+    {% if not cards %}
+        <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-8 rounded-lg text-center">
+            <h2 class="text-2xl font-bold text-green-600 dark:text-green-400 mb-2">You're all caught up! 🎉</h2>
+            <p class="text-green-800 dark:text-green-300">The Spaced Repetition algorithm calculates that you have mastered your current material. Check back tomorrow.</p>
+        </div>
+    {% endif %}
+
+    <div class="space-y-6">
+        {% for card in cards %}
+            <div id="card-container-{{ loop.index }}" class="border border-gray-200 dark:border-slate-700 rounded-lg p-6 bg-white dark:bg-slate-800 shadow-sm">
+                <div class="text-xs font-bold text-slate-400 uppercase tracking-wide border-b dark:border-slate-700 pb-2 mb-4">
+                    Source: <a href="/wiki/{{ card.source }}" class="text-blue-500 hover:underline">{{ card.source }}</a>
+                </div>
+                
+                <div class="prose dark:prose-invert max-w-none text-lg font-medium mb-4">{{ card.question|safe }}</div>
+                
+                <button id="reveal-btn-{{ loop.index }}" onclick="showAnswer({{ loop.index }})" class="text-sm font-bold text-purple-600 dark:text-purple-400 hover:text-purple-800 transition-colors w-full py-2 bg-purple-50 dark:bg-purple-900/20 rounded">
+                    👀 Reveal Answer
+                </button>
+                
+                <div id="answer-{{ loop.index }}" class="hidden mt-4 pt-4 border-t border-dashed border-gray-300 dark:border-slate-600">
+                    <div class="prose dark:prose-invert max-w-none text-gray-600 dark:text-gray-300 mb-6">{{ card.answer|safe }}</div>
+                    
+                    <div class="flex justify-between gap-4 mt-4">
+                        <button onclick="submitScore('{{ card.id }}', 1, {{ loop.index }})" class="flex-1 bg-red-100 hover:bg-red-200 text-red-700 font-bold py-2 rounded transition">Hard (Again)</button>
+                        <button onclick="submitScore('{{ card.id }}', 3, {{ loop.index }})" class="flex-1 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-2 rounded transition">Good</button>
+                        <button onclick="submitScore('{{ card.id }}', 5, {{ loop.index }})" class="flex-1 bg-green-100 hover:bg-green-200 text-green-700 font-bold py-2 rounded transition">Easy</button>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <script>
+        function showAnswer(index) {
+            document.getElementById(`answer-${index}`).classList.remove('hidden');
+            document.getElementById(`reveal-btn-${index}`).classList.add('hidden');
+        }
+
+        async function submitScore(cardId, score, index) {
+            const res = await fetch('/api/score', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({card_id: cardId, quality: score})
+            });
+            if (res.ok) {
+                // Remove the card visually with a fade
+                const container = document.getElementById(`card-container-${index}`);
+                container.style.opacity = 0;
+                setTimeout(() => container.remove(), 300);
+            }
+        }
+    </script>
+{% endblock %}

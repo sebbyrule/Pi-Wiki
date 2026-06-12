@@ -1,0 +1,23 @@
+# --- System Environment ---
+.env
+.env.local
+__pycache__/
+*.pyc
+
+# --- Local Wiki Data Stores ---
+# We ignore the actual documentation content to keep your workspace private
+articles/
+progress.json
+
+# --- User Uploaded Media ---
+static/images/*
+!static/images/.gitkeep
+
+# --- IDE & OS Footprints ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.venv/
+# --- Generated Static Exports ---
+static/*-export.html

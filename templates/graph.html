@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Graph{% endblock %}
+
+{% block content %}
+    <h1 class="text-2xl font-bold mb-4 dark:text-white">🕸️ Interactive Knowledge Graph</h1>
+    <p class="text-sm text-gray-500 mb-6">Visualizing bi-directional links and topic clusters across your documentation.</p>
+
+    <div id="mynetwork" class="w-full h-[600px] border border-gray-200 dark:border-slate-700 rounded-lg bg-gray-50 dark:bg-slate-900 shadow-inner"></div>
+
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async function() {
+            const response = await fetch('/api/graph_data');
+            const data = await response.json();
+
+            const container = document.getElementById('mynetwork');
+            const graphData = {
+                nodes: new vis.DataSet(data.nodes),
+                edges: new vis.DataSet(data.edges)
+            };
+            
+            const options = {
+                nodes: {
+                    shape: 'dot', size: 20, font: { size: 14, color: document.documentElement.classList.contains('dark') ? '#cbd5e1' : '#334155' },
+                    borderWidth: 2, shadow: true
+                },
+                edges: {
+                    width: 1.5, color: { inherit: 'from', opacity: 0.6 }, smooth: { type: 'continuous' }
+                },
+                physics: {
+                    forceAtlas2Based: { gravitationalConstant: -50, centralGravity: 0.01, springLength: 100, springConstant: 0.08 },
+                    maxVelocity: 50, solver: 'forceAtlas2Based', timestep: 0.35, stabilization: { iterations: 150 }
+                }
+            };
+
+            const network = new vis.Network(container, graphData, options);
+
+            // Double click a node to travel to that page
+            network.on("doubleClick", function (params) {
+                if (params.nodes.length > 0) {
+                    window.location.href = `/wiki/${params.nodes[0]}`;
+                }
+            });
+        });
+    </script>
+{% endblock %}
