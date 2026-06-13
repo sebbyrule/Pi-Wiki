@@ -16,39 +16,41 @@ router = APIRouter()
 class CommandRequest(BaseModel):
     command: str
 
+class SaveOutputRequest(BaseModel):
+    filename: str
+    content: str
+
 @router.post("/api/terminal")
 async def run_terminal_command(req: CommandRequest, username: str = Depends(verify_user)):
-    # 1. Detect the Operating System
-    is_windows = platform.system() == "Windows"
-    
-    # 2. Assign the correct OS commands
-    if is_windows:
-        allowed_commands = {
-            "uptime": ["cmd", "/c", "net statistics workstation"],
-            "disk": ["cmd", "/c", "wmic logicaldisk get caption,freespace,size"],
-            "memory": ["cmd", "/c", "wmic OS get FreePhysicalMemory,TotalVisibleMemorySize /Value"],
-            "temp": ["cmd", "/c", "echo [Notice] CPU Temp requires third-party software on Windows."],
-            "docker_ps": ["docker", "ps", "--format", "table {{.Names}}\t{{.Status}}\t{{.Ports}}"]
-        }
-    else:
-        # These will run when deployed to your Raspberry Pi
-        allowed_commands = {
-            "uptime": ["uptime", "-p"],
-            "disk": ["df", "-h", "/"],
-            "memory": ["free", "-m"],
-            "temp": ["vcgencmd", "measure_temp"],
-            "docker_ps": ["docker", "ps", "--format", "table {{.Names}}\t{{.Status}}\t{{.Ports}}"]
-        }
-    
-    # 3. Execute
-    if req.command not in allowed_commands:
-        return {"error": "Command not recognized or strictly forbidden."}
-        
+    # SECURITY NOTE: Removing the allow-list grants full execution access to the container. 
+    # Because this is gated by Depends(verify_user), it remains secure for personal use.
     try:
-        result = subprocess.run(allowed_commands[req.command], capture_output=True, text=True, timeout=5)
-        return {"output": result.stdout.strip() if result.stdout else result.stderr.strip()}
+        # shell=True allows for pipes, redirects, and arbitrary script execution
+        result = subprocess.run(req.command, shell=True, capture_output=True, text=True, timeout=60)
+        
+        output = result.stdout.strip() if result.stdout else result.stderr.strip()
+        if not output and result.returncode == 0:
+            output = "[Command executed successfully with no output]"
+            
+        return {"output": output}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"Execution Failed: {str(e)}"}
+
+@router.post("/api/terminal/save")
+async def save_terminal_output(req: SaveOutputRequest, username: str = Depends(verify_user)):
+    safe_name = "".join(c for c in req.filename if c.isalnum() or c in ("-", "_")).strip()
+    if not safe_name:
+        return {"error": "Invalid filename provided."}
+        
+    file_path = ARTICLES_DIR / f"{safe_name}.md"
+    
+    # Wrap the raw output in an automated markdown template
+    content = f"---\ntags: [terminal-log, auto-generated]\n---\n\n# Terminal Output: {safe_name}\n\n```text\n{req.content}\n```\n"
+    
+    file_path.write_text(content, encoding="utf-8")
+    commit_changes(f"{username} saved terminal output to {safe_name}.md")
+    
+    return {"status": "success", "url": f"/wiki/{safe_name}"}
     
 
 @router.get("/api/graph_data")
