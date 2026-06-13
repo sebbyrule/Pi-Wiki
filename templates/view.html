@@ -82,5 +82,30 @@
             btn.innerText = 'Expand';
         }
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('pre').forEach((block) => {
+            // Position the wrapper
+            block.classList.add('relative', 'group');
+            
+            // Create the button
+            const button = document.createElement('button');
+            button.innerText = 'Copy';
+            button.className = 'absolute top-2 right-2 bg-slate-700 text-xs text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity focus:outline-none hover:bg-blue-600';
+            
+            button.addEventListener('click', async () => {
+                const code = block.querySelector('code').innerText;
+                await navigator.clipboard.writeText(code);
+                button.innerText = 'Copied!';
+                button.classList.add('bg-green-600');
+                setTimeout(() => {
+                    button.innerText = 'Copy';
+                    button.classList.remove('bg-green-600');
+                }, 2000);
+            });
+            
+            block.appendChild(button);
+        });
+    });
 </script>
 {% endblock %}
