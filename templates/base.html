@@ -1,131 +1,219 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %}{% endblock %} - Pi Wiki</title>
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
-    <link rel="stylesheet" href="/static/syntax.css">
-    
+    <link rel="stylesheet" href="/static/syntax.css" />
+
     <script>
-        tailwind.config = { darkMode: 'class' }
-        // On page load or when changing themes, best to add inline in `head` to avoid FOUC
-        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark')
-        }
+      tailwind.config = { darkMode: "class" };
+      // On page load or when changing themes, best to add inline in `head` to avoid FOUC
+      if (
+        localStorage.getItem("theme") === "dark" ||
+        (!("theme" in localStorage) &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches)
+      ) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
     </script>
-</head>
-<body class="bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 flex flex-col min-h-screen transition-colors duration-200">
-    
-    <header class="bg-slate-800 dark:bg-slate-950 text-white shadow-md border-b border-slate-700">
-        <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-            <div class="flex items-center space-x-6">
-                <a href="/" class="text-xl font-bold tracking-tight">🥧 Pi Wiki</a>
-                <button id="theme-toggle" class="text-gray-300 hover:text-white p-1 rounded focus:outline-none transition-colors">
-                    <svg id="theme-toggle-dark-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path></svg>
-                    <svg id="theme-toggle-light-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4.22 1.32a1 1 0 011.415 0l.707.707a1 1 0 01-1.414 1.414l-.707-.707a1 1 0 010-1.414zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM15.657 15.657a1 1 0 010 1.414l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 0zM10 18a1 1 0 01-1-1v-1a1 1 0 112 0v1a1 1 0 01-1 1zm-4.22-1.32a1 1 0 01-1.415 0l-.707-.707a1 1 0 011.414-1.414l.707.707a1 1 0 010 1.414zM2 10a1 1 0 011-1h1a1 1 0 110 2H3a1 1 0 01-1-1zM4.343 4.343a1 1 0 010-1.414l.707-.707a1 1 0 011.414 1.414l-.707.707a1 1 0 01-1.414 0z"></path></svg>
-                </button>
-            </div>
-            
-            <form action="/search" method="GET" class="flex">
-                <input type="text" name="q" placeholder="Search articles..." class="px-3 py-1 rounded-l text-gray-900 dark:text-white dark:bg-slate-700 text-sm focus:outline-none">
-                <button type="submit" class="bg-blue-600 px-3 py-1 rounded-r text-sm font-medium hover:bg-blue-700 text-white">Search</button>
-            </form>
+  </head>
+  <body
+    class="bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 flex flex-col min-h-screen transition-colors duration-200"
+  >
+    <header
+      class="bg-slate-800 dark:bg-slate-950 text-white shadow-md border-b border-slate-700"
+    >
+      <div
+        class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center"
+      >
+        <div class="flex items-center space-x-6">
+          <a href="/" class="text-xl font-bold tracking-tight">🥧 Pi Wiki</a>
+          <button
+            id="theme-toggle"
+            class="text-gray-300 hover:text-white p-1 rounded focus:outline-none transition-colors"
+>
+            <svg
+              id="theme-toggle-dark-icon"
+              class="w-5 h-5 hidden"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"
+              ></path>
+            </svg>
+            <svg
+              id="theme-toggle-light-icon"
+              class="w-5 h-5 hidden"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4.22 1.32a1 1 0 011.415 0l.707.707a1 1 0 01-1.414 1.414l-.707-.707a1 1 0 010-1.414zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM15.657 15.657a1 1 0 010 1.414l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 0zM10 18a1 1 0 01-1-1v-1a1 1 0 112 0v1a1 1 0 01-1 1zm-4.22-1.32a1 1 0 01-1.415 0l-.707-.707a1 1 0 011.414-1.414l.707.707a1 1 0 010 1.414zM2 10a1 1 0 011-1h1a1 1 0 110 2H3a1 1 0 01-1-1zM4.343 4.343a1 1 0 010-1.414l.707-.707a1 1 0 011.414 1.414l-.707.707a1 1 0 01-1.414 0z"
+              ></path>
+            </svg>
+          </button>
         </div>
+
+        <form action="/search" method="GET" class="flex">
+          <input
+            type="text"
+            name="q"
+            placeholder="Search articles..."
+            class="px-3 py-1 rounded-l text-gray-900 dark:text-white dark:bg-slate-700 text-sm focus:outline-none"
+          />
+          <button
+            type="submit"
+            class="bg-blue-600 px-3 py-1 rounded-r text-sm font-medium hover:bg-blue-700 text-white"
+          >
+            Search
+          </button>
+        </form>
+      </div>
     </header>
 
-    <div class="max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row gap-6 w-full flex-grow">
-        <aside class="w-full md:w-64 flex-shrink-0 flex flex-col gap-5">
-            <div class="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg shadow-sm border border-purple-100 dark:border-purple-800/30">
-                <a href="/quiz" class="flex items-center justify-center w-full bg-purple-600 text-white font-bold py-2 px-4 rounded hover:bg-purple-700 transition-colors shadow-sm">
-                    🧠 Quiz Mode
-                </a>
-            </div>
+    <div
+      class="max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row gap-6 w-full flex-grow"
+    >
+      <aside class="w-full md:w-64 flex-shrink-0 flex flex-col gap-5">
+        <div
+          class="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg shadow-sm border border-purple-100 dark:border-purple-800/30"
+        >
+          <a
+            href="/quiz"
+            class="flex items-center justify-center w-full bg-purple-600 text-white font-bold py-2 px-4 rounded hover:bg-purple-700 transition-colors shadow-sm"
+          >
+            🧠 Quiz Mode
+          </a>
+        </div>
 
-            <div class="bg-white dark:bg-slate-800 p-5 rounded-lg shadow-sm border border-gray-100 dark:border-slate-700">
-                <a href="/tags" class="flex justify-between items-center text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 hover:text-blue-500">
-                    🏷️ Tag Cloud <span>&rarr;</span>
-                </a>
-            </div>
+        <div
+          class="bg-white dark:bg-slate-800 p-5 rounded-lg shadow-sm border border-gray-100 dark:border-slate-700"
+        >
+          <a
+            href="/tags"
+            class="flex justify-between items-center text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 hover:text-blue-500"
+          >
+            🏷️ Tag Cloud <span>&rarr;</span>
+          </a>
+        </div>
 
-            <div class="bg-white dark:bg-slate-800 p-5 rounded-lg shadow-sm border border-gray-100 dark:border-slate-700">
-                <a href="/graph" class="flex justify-between items-center text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 hover:text-blue-500 transition-colors">
-                    🕸️ Knowledge Graph <span>&rarr;</span>
-                </a>
-            </div>
-            
-            <div class="bg-white dark:bg-slate-800 p-5 rounded-lg shadow-sm border border-gray-100 dark:border-slate-700">
-                <div class="flex justify-between items-center mb-4 border-b dark:border-slate-700 pb-2">
-                    <h2 class="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pages</h2>
-                    <button onclick="createNewPage()" class="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-2 py-1 rounded font-medium transition-colors">
-                        + New
-                    </button>
-                </div>
-                <ul class="space-y-2">
-                    {% for page in pages %}
-                        <li>
-                            <a href="{% if page == 'index' %}/{% else %}/wiki/{{ page }}{% endif %}" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline capitalize">
-                                {{ 'Home' if page == 'index' else page.replace('-', ' ') }}
-                            </a>
-                        </li>
-                    {% endfor %}
-                </ul>
-            </div>
-        </aside>
+        <div
+          class="bg-white dark:bg-slate-800 p-5 rounded-lg shadow-sm border border-gray-100 dark:border-slate-700"
+        >
+          <a
+            href="/graph"
+            class="flex justify-between items-center text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 hover:text-blue-500 transition-colors"
+          >
+            🕸️ Knowledge Graph <span>&rarr;</span>
+          </a>
+        </div>
 
-        <main class="flex-grow min-w-0">
-            <article class="bg-white dark:bg-slate-800 p-8 rounded-lg shadow-sm border border-gray-100 dark:border-slate-700 prose dark:prose-invert prose-blue max-w-none">
-                {% block content %}{% endblock %}
-            </article>
-        </main>
+        <div
+          class="bg-white dark:bg-slate-800 p-5 rounded-lg shadow-sm border border-gray-100 dark:border-slate-700"
+        >
+          <div
+            class="flex justify-between items-center mb-4 border-b dark:border-slate-700 pb-2"
+          >
+            <h2
+              class="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400"
+            >
+              Pages
+            </h2>
+            <button
+              onclick="createNewPage()"
+              class="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-2 py-1 rounded font-medium transition-colors"
+            >
+              + New
+            </button>
+          </div>
+          <ul class="space-y-2">
+            {% for page in pages %}
+            <li>
+              <a
+                href="{% if page == 'index' %}/{% else %}/wiki/{{ page }}{% endif %}"
+                class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline capitalize"
+              >
+                {{ 'Home' if page == 'index' else page.replace('-', ' ') }}
+              </a>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </aside>
+
+      <main class="flex-grow min-w-0">
+        <article
+          class="bg-white dark:bg-slate-800 p-8 rounded-lg shadow-sm border border-gray-100 dark:border-slate-700 prose dark:prose-invert prose-blue max-w-none"
+        >
+          {% block content %}{% endblock %}
+        </article>
+      </main>
     </div>
 
     <script>
-        // Dark Mode Toggle Logic
-        var themeToggleDarkIcon = document.getElementById('theme-toggle-dark-icon');
-        var themeToggleLightIcon = document.getElementById('theme-toggle-light-icon');
+      // Dark Mode Toggle Logic
+      var themeToggleDarkIcon = document.getElementById(
+        "theme-toggle-dark-icon",
+      );
+      var themeToggleLightIcon = document.getElementById(
+        "theme-toggle-light-icon",
+      );
 
-        // Change the icons inside the button based on previous settings
-        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            themeToggleLightIcon.classList.remove('hidden');
+      // Change the icons inside the button based on previous settings
+      if (
+        localStorage.getItem("theme") === "dark" ||
+        (!("theme" in localStorage) &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches)
+      ) {
+        themeToggleLightIcon.classList.remove("hidden");
+      } else {
+        themeToggleDarkIcon.classList.remove("hidden");
+      }
+
+      var themeToggleBtn = document.getElementById("theme-toggle");
+
+      themeToggleBtn.addEventListener("click", function () {
+        themeToggleDarkIcon.classList.toggle("hidden");
+        themeToggleLightIcon.classList.toggle("hidden");
+
+        if (localStorage.getItem("theme")) {
+          if (localStorage.getItem("theme") === "light") {
+            document.documentElement.classList.add("dark");
+            localStorage.setItem("theme", "dark");
+          } else {
+            document.documentElement.classList.remove("dark");
+            localStorage.setItem("theme", "light");
+          }
         } else {
-            themeToggleDarkIcon.classList.remove('hidden');
+          if (document.documentElement.classList.contains("dark")) {
+            document.documentElement.classList.remove("dark");
+            localStorage.setItem("theme", "light");
+          } else {
+            document.documentElement.classList.add("dark");
+            localStorage.setItem("theme", "dark");
+          }
         }
+      });
 
-        var themeToggleBtn = document.getElementById('theme-toggle');
-
-        themeToggleBtn.addEventListener('click', function() {
-            themeToggleDarkIcon.classList.toggle('hidden');
-            themeToggleLightIcon.classList.toggle('hidden');
-
-            if (localStorage.getItem('theme')) {
-                if (localStorage.getItem('theme') === 'light') {
-                    document.documentElement.classList.add('dark');
-                    localStorage.setItem('theme', 'dark');
-                } else {
-                    document.documentElement.classList.remove('dark');
-                    localStorage.setItem('theme', 'light');
-                }
-            } else {
-                if (document.documentElement.classList.contains('dark')) {
-                    document.documentElement.classList.remove('dark');
-                    localStorage.setItem('theme', 'light');
-                } else {
-                    document.documentElement.classList.add('dark');
-                    localStorage.setItem('theme', 'dark');
-                }
-            }
-        });
-
-        function createNewPage() {
-            const pageName = prompt("Enter a name for your new page (e.g., system-architecture):");
-            if (pageName && pageName.trim() !== "") {
-                const safeName = pageName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
-                window.location.href = `/edit/${safeName}`;
-            }
+      function createNewPage() {
+        const pageName = prompt(
+          "Enter a name for your new page (e.g., system-architecture):",
+        );
+        if (pageName && pageName.trim() !== "") {
+          const safeName = pageName
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9]+/g, "-");
+          window.location.href = `/edit/${safeName}`;
         }
+      }
     </script>
-</body>
+  </body>
 </html>

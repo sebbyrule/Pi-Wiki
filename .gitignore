@@ -6,7 +6,6 @@ __pycache__/
 
 # --- Local Wiki Data Stores ---
 # We ignore the actual documentation content to keep your workspace private
-articles/
 progress.json
 
 # --- User Uploaded Media ---
