@@ -6,6 +6,16 @@ services:
       - "8000:8000"
     volumes:
       - ./articles:/app/articles
+      - ./inbox:/app/inbox 
+      - ./chroma_db:/app/chroma_db
+      - ./progress.json:/app/progress.json
+      - ./plugins:/app/plugins
+      - ./templates:/app/templates
+      - ./routers:/app/routers
+      - ./services:/app/services
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
+      - TZ=America/Toronto
     restart: unless-stopped

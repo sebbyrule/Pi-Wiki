@@ -12,6 +12,20 @@ from services.sm2_service import load_progress
 
 router = APIRouter()
 
+def get_all_pages():
+    """Returns a list of all markdown file stems to populate the sidebar."""
+    if not ARTICLES_DIR.exists():
+        return ["index"]
+    
+    pages = [f.stem for f in ARTICLES_DIR.glob("*.md")]
+    
+    # Ensure 'index' (Home) is always at the very top of the list
+    if "index" in pages:
+        pages.remove("index")
+        pages.insert(0, "index")
+        
+    return pages
+
 @router.get("/", response_class=HTMLResponse)
 async def read_index(request: Request):
     index_path = ARTICLES_DIR / "index.md"
@@ -53,6 +67,16 @@ async def view_tags(request: Request):
 @router.get("/graph", response_class=HTMLResponse)
 async def view_graph(request: Request):
     return templates.TemplateResponse(request, "graph.html", {"title": "Knowledge Graph", "pages": get_available_pages()})
+
+@router.get("/chat")
+async def chat_page(request: Request):
+    """Renders the semantic chat interface."""
+    pages = get_all_pages()
+    return templates.TemplateResponse(
+        request=request, 
+        name="chat.html", 
+        context={"pages": pages}
+    )
 
 @router.get("/quiz", response_class=HTMLResponse)
 async def serve_quiz(request: Request):

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Semantic Chat{% endblock %}
+
+{% block content %}
+<div class="flex flex-col h-[75vh]">
+    <div class="border-b dark:border-slate-700 pb-4 mb-4">
+        <h1 class="text-3xl font-bold tracking-tight">🧠 Semantic Knowledge Chat</h1>
+        <p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Ask questions, and the AI will answer using <b>only</b> your wiki's documents.</p>
+    </div>
+
+    <div id="chat-history" class="flex-grow overflow-y-auto space-y-6 mb-4 pr-4 custom-scrollbar">
+        <div class="flex gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs">AI</div>
+            <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30 p-4 rounded-lg rounded-tl-none w-full shadow-sm">
+                <p class="text-sm dark:text-gray-200">Hello! I have vectorized your knowledge base. What would you like to know?</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading-indicator" class="hidden flex gap-4 mb-4 opacity-70">
+        <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs animate-pulse">AI</div>
+        <div class="p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400 animate-pulse">Searching vector memory & generating answer...</p>
+        </div>
+    </div>
+
+    <div class="flex gap-2">
+        <input type="text" id="chat-input" placeholder="e.g., How did I configure my Nginx reverse proxy?" class="flex-grow p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-sm transition-all" onkeypress="if(event.key === 'Enter') sendChatMessage()">
+        <button onclick="sendChatMessage()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold transition-colors shadow-sm">Send</button>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<script>
+    async function sendChatMessage() {
+        const inputStr = document.getElementById('chat-input');
+        const query = inputStr.value.trim();
+        if (!query) return;
+
+        const history = document.getElementById('chat-history');
+        const loader = document.getElementById('loading-indicator');
+
+        // 1. Append User Message
+        history.innerHTML += `
+            <div class="flex gap-4 flex-row-reverse">
+                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold text-xs">You</div>
+                <div class="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4 rounded-lg rounded-tr-none shadow-sm">
+                    <p class="text-sm dark:text-gray-200">${query}</p>
+                </div>
+            </div>`;
+        
+        inputStr.value = '';
+        history.scrollTop = history.scrollHeight;
+        
+        // 2. Show Loader
+        loader.classList.remove('hidden');
+
+        try {
+            // 3. Call the API
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({query: query})
+            });
+            
+            const data = await res.json();
+            loader.classList.add('hidden');
+
+            if (data.error) {
+                appendAIError(data.error);
+                return;
+            }
+
+            // 4. Format Sources
+            let sourceHtml = '';
+            if (data.sources && data.sources.length > 0) {
+                sourceHtml = `<div class="mt-3 pt-3 border-t border-blue-200 dark:border-blue-800/50 flex flex-wrap gap-2 items-center">
+                    <span class="text-xs font-bold text-blue-500 uppercase tracking-wider">Sources:</span>
+                    ${data.sources.map(s => `<a href="/wiki/${s}" target="_blank" class="text-xs bg-white dark:bg-slate-900 border border-blue-200 dark:border-slate-700 px-2 py-1 rounded hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors text-blue-600 dark:text-blue-400">${s}</a>`).join('')}
+                </div>`;
+            }
+
+            // 5. Append AI Message (Using marked.parse to render Markdown)
+            history.innerHTML += `
+                <div class="flex gap-4">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs">AI</div>
+                    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30 p-4 rounded-lg rounded-tl-none w-full shadow-sm">
+                        <div class="prose dark:prose-invert prose-sm max-w-none text-sm">${marked.parse(data.answer)}</div>
+                        ${sourceHtml}
+                    </div>
+                </div>`;
+                
+        } catch (err) {
+            loader.classList.add('hidden');
+            appendAIError("Fatal UI Error: Could not reach the backend API.");
+        }
+        
+        history.scrollTop = history.scrollHeight;
+    }
+
+    function appendAIError(errorMsg) {
+        document.getElementById('chat-history').innerHTML += `
+            <div class="flex gap-4">
+                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-red-600 flex items-center justify-center text-white font-bold text-xs">!</div>
+                <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 p-4 rounded-lg rounded-tl-none w-full shadow-sm text-red-700 dark:text-red-400 text-sm">
+                    ${errorMsg}
+                </div>
+            </div>`;
+    }
+</script>
+{% endblock %}

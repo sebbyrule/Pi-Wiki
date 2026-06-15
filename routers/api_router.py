@@ -1,7 +1,10 @@
 import shutil
 import subprocess
 import platform
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+import json
+import os
+import httpx
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends # pyright: ignore[reportMissingImports]
 from fastapi.responses import JSONResponse, FileResponse
 from core.config import ARTICLES_DIR, IMAGES_DIR, STATIC_DIR
 from core.security import verify_user
@@ -9,6 +12,9 @@ from services.git_service import commit_changes
 from services.sm2_service import SM2Score, update_card_score
 from services.graph_service import build_graph_data
 from services.markdown_service import render_markdown_file
+from services.ai_service import process_inbox_files
+from services.rag_service import embed_document, query_knowledge_base
+from services.plugin_service import load_plugins
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -19,9 +25,12 @@ class CommandRequest(BaseModel):
 class SaveOutputRequest(BaseModel):
     filename: str
     content: str
+    
+class ChatQuery(BaseModel):
+    query: str
 
 @router.post("/api/terminal")
-async def run_terminal_command(req: CommandRequest, username: str = Depends(verify_user)):
+def run_terminal_command(req: CommandRequest, username: str = Depends(verify_user)):
     # SECURITY NOTE: Removing the allow-list grants full execution access to the container. 
     # Because this is gated by Depends(verify_user), it remains secure for personal use.
     try:
@@ -48,6 +57,7 @@ async def save_terminal_output(req: SaveOutputRequest, username: str = Depends(v
     content = f"---\ntags: [terminal-log, auto-generated]\n---\n\n# Terminal Output: {safe_name}\n\n```text\n{req.content}\n```\n"
     
     file_path.write_text(content, encoding="utf-8")
+    embed_document(safe_name, content)
     commit_changes(f"{username} saved terminal output to {safe_name}.md")
     
     return {"status": "success", "url": f"/wiki/{safe_name}"}
@@ -61,6 +71,18 @@ async def api_graph_data():
 async def score_card(score: SM2Score):
     update_card_score(score)
     return {"status": "success"}
+
+from services.ai_service import process_inbox_files
+
+# ... (paste this at the very bottom of api_router.py) ...
+@router.post("/api/inbox/process")
+def trigger_inbox_processing(username: str = Depends(verify_user)):
+    """Triggers the AI to sweep the inbox directory."""
+    import asyncio
+    # We use asyncio.run because api_router is currently running synchronously 
+    # so we don't freeze the terminal!
+    result = asyncio.run(process_inbox_files())
+    return result
 
 @router.delete("/wiki/{page_name}")
 async def delete_article(page_name: str, username: str = Depends(verify_user)):
@@ -95,3 +117,92 @@ async def export_article(page_name: str):
     export_path = STATIC_DIR / f"{safe_name}-export.html"
     export_path.write_text(standalone_html, encoding="utf-8")
     return FileResponse(path=export_path, filename=f"{safe_name}.html", media_type="text/html")
+
+@router.post("/api/chat")
+async def rag_semantic_chat(req: ChatQuery, username: str = Depends(verify_user)):
+    """Agentic Chat: Searches vector DB and executes dynamic plugins if needed."""
+    
+    # 1. Gather RAG Context
+    db_results = query_knowledge_base(req.query, n_results=3)
+    chunks = db_results.get("documents", [[]])[0]
+    sources = list(set([s.get("source", "Unknown") for s in db_results.get("metadatas", [[]])[0]]))
+    context_text = "\n\n---\n\n".join(chunks) if chunks else "No local wiki context found."
+
+    # 2. Hot-load Plugins
+    available_functions, tools_schema = load_plugins()
+
+    system_prompt = (
+        "You are the Pi Wiki Autonomous Agent. "
+        "You have access to local documents (provided below) and local system tools. "
+        "Use tools if the user asks for real-time data or actions outside the documents.\n\n"
+        f"WIKI CONTEXT:\n{context_text}"
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": req.query}
+    ]
+
+    lm_studio_url = os.getenv("LOCAL_AI_URL", "http://host.docker.internal:1234/v1/chat/completions")
+    payload = {
+        "model": "local-model",
+        "messages": messages,
+        "temperature": 0.2,
+        "max_tokens": 10000
+    }
+    
+    # Only attach tools if we actually have scripts in the plugins folder
+    if tools_schema:
+        payload["tools"] = tools_schema
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # FIRST PASS: Ask the AI how it wants to answer
+            response = await client.post(lm_studio_url, json=payload, timeout=60.0)
+            if response.status_code != 200:
+                return {"error": f"LM Studio Error: {response.status_code}"}
+                
+            response_data = response.json()["choices"][0]["message"]
+
+            # IF THE AI WANTS TO USE A TOOL:
+            if response_data.get("tool_calls"):
+                messages.append(response_data) # Append the AI's request to history
+                
+                # Execute every tool the AI asked for
+                for tool_call in response_data["tool_calls"]:
+                    func_name = tool_call["function"]["name"]
+                    func_args = json.loads(tool_call["function"]["arguments"])
+                    
+                    if func_name in available_functions:
+                        # Run the dynamic python script!
+                        tool_result = available_functions[func_name](**func_args)
+                        
+                        # Feed the result back into the chat history
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call["id"],
+                            "content": json.dumps(tool_result)
+                        })
+                
+                # SECOND PASS: Ask the AI to read the tool results and give a final answer
+                payload["messages"] = messages
+                final_response = await client.post(lm_studio_url, json=payload, timeout=60.0)
+                final_answer = final_response.json()["choices"][0]["message"]["content"]
+                return {"answer": final_answer, "sources": sources + ["Live System Plugin"]}
+
+            # If no tools were needed, just return the standard text answer
+            return {"answer": response_data["content"], "sources": sources}
+
+    except Exception as e:
+        return {"error": f"Failed to connect to AI Agent: {str(e)}"}
+    
+@router.post("/api/rag/index-all")
+def index_entire_wiki(username: str = Depends(verify_user)):
+    """Sweeps the articles folder and embeds everything into ChromaDB."""
+    all_files = list(ARTICLES_DIR.glob("*.md"))
+    count = 0
+    for file_path in all_files:
+        content = file_path.read_text(encoding="utf-8")
+        embed_document(file_path.stem, content)
+        count += 1
+    return {"status": "success", "message": f"Successfully vectorized {count} documents!"}
