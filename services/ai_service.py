@@ -8,47 +8,52 @@ from services.git_service import commit_changes
 from services.rag_service import embed_document
 
 async def process_inbox_files():
-    """Scans the inbox, formats raw text via LLM, and moves it to articles/"""
-    inbox_files = list(INBOX_DIR.glob("*.txt")) + list(INBOX_DIR.glob("*.md"))
+    """Scans the inbox, transcribes audio, formats text via LLM, and moves it to articles/"""
+    audio_extensions = (".mp3", ".wav", ".m4a")
+    # Sweep for text and audio
+    inbox_files = [f for f in INBOX_DIR.glob("*.*") if f.suffix.lower() in [".txt", ".md"] + list(audio_extensions)]
+    
     if not inbox_files:
         return {"status": "empty", "message": "No files in inbox."}
 
-    # Fetch the URL from your .env file
-    lm_studio_url = LOCAL_AI_URL
+    lm_studio_url = os.getenv("LOCAL_AI_URL", "http://host.docker.internal:1234/v1/chat/completions")
     processed_count = 0
     errors = []
+    
+    # Lazy-load whisper only if we actually find an audio file
+    whisper_model = None
 
     for file_path in inbox_files:
-        raw_text = file_path.read_text(encoding="utf-8")
+        # STEP A: Extract Text (Either by reading the file or transcribing audio)
+        if file_path.suffix.lower() in audio_extensions:
+            if whisper_model is None:
+                import whisper
+                whisper_model = whisper.load_model("base") # 'base' is incredibly fast on CPU
+            result = whisper_model.transcribe(str(file_path))
+            raw_text = result["text"]
+        else:
+            raw_text = file_path.read_text(encoding="utf-8")
         
+        # STEP B: Format with LM Studio
         system_prompt = (
-            "You are an expert technical editor. Your job is to take raw, messy brain dumps "
+            "You are an expert technical editor. Your job is to take raw, messy brain dumps or audio transcripts "
             "and format them into clean, structured Markdown documentation.\n"
             "Rules:\n"
             "1. Start the document with YAML frontmatter containing relevant 'tags'.\n"
             "2. Create a concise, descriptive # H1 Title.\n"
-            "3. Output ONLY the formatted markdown, no conversational filler.\n"
-            "Example Output:\n"
-            "---\n"
-            "tags: example, markdown\n"
-            "---\n"
-            "\n"
-            "# Example Title\n"
-            "\n"
-            "This is an example of formatted markdown."
+            "3. Output ONLY the formatted markdown, no conversational filler."
         )
 
         payload = {
             "model": "local-model",
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Format this raw text:\n\n{raw_text}"}
+                {"role": "user", "content": f"Format this raw text/transcript:\n\n{raw_text}"}
             ],
             "temperature": 0.2, "max_tokens": 2000, "stream": False
         }
 
         try:
-            # We explicitly wait for LM Studio
             async with httpx.AsyncClient() as client:
                 response = await client.post(lm_studio_url, json=payload, timeout=120.0)
                 
@@ -58,24 +63,17 @@ async def process_inbox_files():
                 new_article_path = ARTICLES_DIR / f"{safe_name}.md"
                 
                 new_article_path.write_text(formatted_md, encoding="utf-8")
-                if response.status_code == 200:
-                    formatted_md = response.json()["choices"][0]["message"]["content"].strip()
-                    safe_name = file_path.stem.lower().replace(" ", "-")
-                    new_article_path = ARTICLES_DIR / f"{safe_name}.md"
-
-                    # Save to disk
-                    new_article_path.write_text(formatted_md, encoding="utf-8")
-
-                    # --- NEW: Save to Vector Memory ---
-                    embed_document(safe_name, formatted_md)
                 
-                file_path.unlink() 
+                # Automatically embed the new file into the RAG database
+                from services.rag_service import embed_document
+                embed_document(safe_name, formatted_md) 
+                
+                file_path.unlink() # Delete the original audio or txt file
                 processed_count += 1
             else:
                 errors.append(f"LM Studio returned status {response.status_code}")
                 
         except Exception as e:
-            # WE NOW RETURN THE ERROR DIRECTLY TO THE BROWSER
             return {"status": "error", "message": f"Connection Failed: {str(e)}"}
 
     if processed_count > 0:

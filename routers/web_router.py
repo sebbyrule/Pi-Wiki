@@ -114,13 +114,16 @@ async def serve_quiz(request: Request):
     today = datetime.now().strftime("%Y-%m-%d")
     flashcards, due_cards = [], []
     
+    # --- NEW: Stat Tracker ---
+    total_cards = 0 
+    
     pattern = re.compile(r':::Q\r?\n(.*?)\r?\n:::A\r?\n(.*?)\r?\n:::', re.DOTALL)
     
-    # Use RGLOB here to sweep inside all your new folders
     for file_path in ARTICLES_DIR.rglob("*.md"):
         content = file_path.read_text(encoding="utf-8")
         for idx, (q, a) in enumerate(pattern.findall(content)):
-            # Retain the folder structure in the flashcard ID
+            total_cards += 1 # Count every flashcard found in the system
+            
             rel_stem = file_path.relative_to(ARTICLES_DIR).with_suffix("").as_posix()
             card_id = f"{rel_stem}-{idx}"
             card_data = {
@@ -134,8 +137,30 @@ async def serve_quiz(request: Request):
 
     cards_to_review = due_cards[:5] if due_cards else []
     
-    return templates.TemplateResponse(request, "quiz.html", {
-        "title": "Micro-Learning", 
-        "cards": cards_to_review, 
-        "pages": get_all_pages() 
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="quiz.html", 
+        context={
+            "request": request, 
+            "title": "Study Dashboard", 
+            "cards": cards_to_review, 
+            "pages": get_all_pages(),
+            # --- NEW: Send the stats to the frontend UI ---
+            "stats": {"total": total_cards, "due": len(due_cards)} 
+        }
+    )
+
+@router.get("/journal/today")
+async def create_daily_journal(request: Request, username: str = Depends(verify_user)):
+    today = datetime.now().strftime("%Y-%m-%d")
+    journal_path = ARTICLES_DIR / "journal" / f"{today}.md"
+    
+    # If today's journal doesn't exist, generate the folder and boilerplate automatically
+    if not journal_path.exists():
+        journal_path.parent.mkdir(parents=True, exist_ok=True)
+        template = f"---\ntags: [journal, daily]\ndate: {today}\n---\n# Journal: {today}\n\n## 🎯 Focus for Today\n- \n\n## 📝 Notes & Logs\n- \n"
+        journal_path.write_text(template, encoding="utf-8")
+        commit_changes(f"Created daily journal for {today}")
+        
+    # Instantly redirect the user to the edit page for today's file
+    return RedirectResponse(url=f"/edit/journal/{today}", status_code=303)

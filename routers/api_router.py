@@ -30,6 +30,9 @@ class SaveOutputRequest(BaseModel):
 class ChatQuery(BaseModel):
     query: str
 
+class LinkSuggestionRequest(BaseModel):
+    text: str
+
 @router.post("/api/terminal")
 def run_terminal_command(req: CommandRequest, username: str = Depends(verify_user)):
     # SECURITY NOTE: Removing the allow-list grants full execution access to the container. 
@@ -211,3 +214,21 @@ def index_entire_wiki(username: str = Depends(verify_user)):
         embed_document(safe_name, content)
         count += 1
     return {"status": "success", "message": f"Successfully vectorized {count} documents!"}
+
+@router.post("/api/rag/suggest-link")
+def suggest_semantic_link(req: LinkSuggestionRequest):
+    """Takes a fragment of text and searches the vector DB for a related page."""
+    # Only search if they've typed enough context
+    if len(req.text) < 25: 
+        return {"suggestion": None}
+        
+    # Search the vector database
+    db_results = query_knowledge_base(req.text, n_results=1)
+    sources = db_results.get("metadatas", [[]])[0]
+    
+    if sources:
+        # Return the highest matching document
+        best_match = sources[0].get("source")
+        return {"suggestion": best_match}
+        
+    return {"suggestion": None}
