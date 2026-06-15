@@ -3,6 +3,7 @@ import httpx
 import re
 from pathlib import Path
 from core.config import ARTICLES_DIR, INBOX_DIR
+from core.config import LOCAL_AI_URL
 from services.git_service import commit_changes
 from services.rag_service import embed_document
 
@@ -13,7 +14,7 @@ async def process_inbox_files():
         return {"status": "empty", "message": "No files in inbox."}
 
     # Fetch the URL from your .env file
-    lm_studio_url = os.getenv("LOCAL_AI_URL", "http://10.5.0.2:1234/v1/chat/completions")
+    lm_studio_url = LOCAL_AI_URL
     processed_count = 0
     errors = []
 
@@ -93,7 +94,7 @@ async def process_with_local_ai(file_path: Path):
         if "> **AI TL;DR:**" in content:
             return 
 
-        lm_studio_url = "http://10.5.0.2:1234/v1/chat/completions"
+        lm_studio_url = LOCAL_AI_URL
         payload = {
             "model": "local-model",
             "messages": [

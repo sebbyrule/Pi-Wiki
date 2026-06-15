@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Depends # pyrigh
 from fastapi.responses import JSONResponse, FileResponse
 from core.config import ARTICLES_DIR, IMAGES_DIR, STATIC_DIR
 from core.security import verify_user
+from core.config import LOCAL_AI_URL
 from services.git_service import commit_changes
 from services.sm2_service import SM2Score, update_card_score
 from services.graph_service import build_graph_data
@@ -143,7 +144,7 @@ async def rag_semantic_chat(req: ChatQuery, username: str = Depends(verify_user)
         {"role": "user", "content": req.query}
     ]
 
-    lm_studio_url = os.getenv("LOCAL_AI_URL", "http://host.docker.internal:1234/v1/chat/completions")
+    lm_studio_url = LOCAL_AI_URL
     payload = {
         "model": "local-model",
         "messages": messages,
@@ -198,11 +199,15 @@ async def rag_semantic_chat(req: ChatQuery, username: str = Depends(verify_user)
     
 @router.post("/api/rag/index-all")
 def index_entire_wiki(username: str = Depends(verify_user)):
-    """Sweeps the articles folder and embeds everything into ChromaDB."""
-    all_files = list(ARTICLES_DIR.glob("*.md"))
+    """Sweeps the articles folder (and all subfolders) into ChromaDB."""
+    all_files = list(ARTICLES_DIR.rglob("*.md")) # Changed to rglob!
     count = 0
     for file_path in all_files:
         content = file_path.read_text(encoding="utf-8")
-        embed_document(file_path.stem, content)
+        
+        # Save the nested path (e.g. 'homelab/docker') so the AI links back correctly
+        safe_name = file_path.relative_to(ARTICLES_DIR).with_suffix("").as_posix()
+        
+        embed_document(safe_name, content)
         count += 1
     return {"status": "success", "message": f"Successfully vectorized {count} documents!"}

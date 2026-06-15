@@ -2,29 +2,59 @@ import re
 import markdown
 from datetime import datetime
 from fastapi import APIRouter, Request, Depends, Form, BackgroundTasks
+from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
-from core.config import templates, ARTICLES_DIR
+from core.config import ARTICLES_DIR
 from core.security import verify_user
-from services.markdown_service import render_markdown_file, get_all_tags, get_available_pages, get_backlinks
+from core.config import TEMPLATES_DIR, HOMELAB_DASHBOARD_URL, GITHUB_REPO_URL, SUPPORT_EMAIL
+from services.markdown_service import render_markdown_file, get_all_tags, get_backlinks
 from services.git_service import commit_changes
 from services.ai_service import process_with_local_ai
 from services.sm2_service import load_progress
 
 router = APIRouter()
 
+# Initialize Jinja2 Templates
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Inject Global UI Variables
+templates.env.globals["HOMELAB_DASHBOARD_URL"] = HOMELAB_DASHBOARD_URL
+templates.env.globals["GITHUB_REPO_URL"] = GITHUB_REPO_URL
+templates.env.globals["SUPPORT_EMAIL"] = SUPPORT_EMAIL
+
 def get_all_pages():
-    """Returns a list of all markdown file stems to populate the sidebar."""
+    """Returns a grouped dictionary of pages for the collapsible sidebar."""
     if not ARTICLES_DIR.exists():
-        return ["index"]
+        return {"Root": ["index"]}
     
-    pages = [f.stem for f in ARTICLES_DIR.glob("*.md")]
+    # We will separate root-level files and folder-level files
+    tree = {"Root": []}
     
-    # Ensure 'index' (Home) is always at the very top of the list
-    if "index" in pages:
-        pages.remove("index")
-        pages.insert(0, "index")
-        
-    return pages
+    for f in ARTICLES_DIR.rglob("*.md"):
+        rel_path = f.relative_to(ARTICLES_DIR).with_suffix("").as_posix()
+        if rel_path == "index":
+            continue
+            
+        parts = rel_path.split("/")
+        if len(parts) == 1:
+            # It's a top-level file
+            tree["Root"].append(rel_path)
+        else:
+            # It's inside a folder. Group it by the first folder name.
+            folder_name = parts[0]
+            if folder_name not in tree:
+                tree[folder_name] = []
+            tree[folder_name].append(rel_path)
+    
+    # Sort files alphabetically for a clean UI
+    tree["Root"].sort()
+    for folder in tree:
+        if folder != "Root":
+            tree[folder].sort()
+            
+    # Ensure 'index' (Home) is always the absolute first item
+    tree["Root"].insert(0, "index")
+    return tree
 
 @router.get("/", response_class=HTMLResponse)
 async def read_index(request: Request):
@@ -33,65 +63,79 @@ async def read_index(request: Request):
         index_path.write_text("---\ntags: [home]\n---\n# Welcome\n\nEdit this file.", encoding="utf-8")
         commit_changes("Initialize index.md")
     html_content, tags, toc = render_markdown_file(index_path)
-    return templates.TemplateResponse(request, "view.html", {"title": "Home", "content": html_content, "toc": toc, "pages": get_available_pages(), "page_name": "index", "tags": tags, "backlinks": get_backlinks("index")})
+    return templates.TemplateResponse(request, "view.html", {"title": "Home", "content": html_content, "toc": toc, "pages": get_all_pages(), "page_name": "index", "tags": tags, "backlinks": get_backlinks("index")})
 
-@router.get("/wiki/{page_name}", response_class=HTMLResponse)
-async def read_article(request: Request, page_name: str):
-    safe_name = "".join(c for c in page_name if c.isalnum() or c in ("-", "_")).strip()
-    file_path = ARTICLES_DIR / f"{safe_name}.md"
+# NEW: :path tells FastAPI to accept slashes in the URL
+@router.get("/wiki/{page_path:path}", response_class=HTMLResponse)
+async def read_article(request: Request, page_path: str):
+    # ALLOW slashes during sanitization
+    safe_path = "".join(c for c in page_path if c.isalnum() or c in ("-", "_", "/")).strip("/")
+    file_path = ARTICLES_DIR / f"{safe_path}.md"
     if not file_path.exists():
-        return RedirectResponse(url=f"/edit/{safe_name}", status_code=303)
+        return RedirectResponse(url=f"/edit/{safe_path}", status_code=303)
     html_content, tags, toc = render_markdown_file(file_path)
-    return templates.TemplateResponse(request, "view.html", {"title": safe_name, "content": html_content, "toc": toc, "pages": get_available_pages(), "page_name": safe_name, "tags": tags, "backlinks": get_backlinks(safe_name)})
+    return templates.TemplateResponse(request, "view.html", {"title": safe_path, "content": html_content, "toc": toc, "pages": get_all_pages(), "page_name": safe_path, "tags": tags, "backlinks": get_backlinks(safe_path)})
 
-@router.get("/edit/{page_name}", response_class=HTMLResponse)
-async def edit_article_form(request: Request, page_name: str, username: str = Depends(verify_user)):
-    safe_name = "".join(c for c in page_name if c.isalnum() or c in ("-", "_")).strip()
-    file_path = ARTICLES_DIR / f"{safe_name}.md"
+@router.get("/edit/{page_path:path}", response_class=HTMLResponse)
+async def edit_article_form(request: Request, page_path: str, username: str = Depends(verify_user)):
+    safe_path = "".join(c for c in page_path if c.isalnum() or c in ("-", "_", "/")).strip("/")
+    file_path = ARTICLES_DIR / f"{safe_path}.md"
     content = file_path.read_text(encoding="utf-8") if file_path.exists() else "---\ntags: [draft]\n---\n\n"
-    return templates.TemplateResponse(request, "edit.html", {"title": f"Edit {safe_name}", "content": content, "pages": get_available_pages(), "page_name": safe_name})
+    return templates.TemplateResponse(request, "edit.html", {"title": f"Edit {safe_path}", "content": content, "pages": get_all_pages(), "page_name": safe_path})
 
-@router.post("/edit/{page_name}")
-async def save_article(request: Request, page_name: str, bg_tasks: BackgroundTasks, content: str = Form(...), username: str = Depends(verify_user)):
-    safe_name = "".join(c for c in page_name if c.isalnum() or c in ("-", "_")).strip()
-    file_path = ARTICLES_DIR / f"{safe_name}.md"
+@router.post("/edit/{page_path:path}")
+async def save_article(request: Request, page_path: str, bg_tasks: BackgroundTasks, content: str = Form(...), username: str = Depends(verify_user)):
+    safe_path = "".join(c for c in page_path if c.isalnum() or c in ("-", "_", "/")).strip("/")
+    file_path = ARTICLES_DIR / f"{safe_path}.md"
+    
+    # MAGIC FIX: Automatically create the folder on your PC if it doesn't exist yet!
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    
     file_path.write_text(content, encoding="utf-8")
-    commit_changes(f"{username} updated {safe_name}.md")
+    commit_changes(f"{username} updated {safe_path}.md")
     bg_tasks.add_task(process_with_local_ai, file_path)
-    return RedirectResponse(url=f"/wiki/{safe_name}", status_code=303)
+    return RedirectResponse(url=f"/wiki/{safe_path}", status_code=303)
 
 @router.get("/tags", response_class=HTMLResponse)
 async def view_tags(request: Request):
-    return templates.TemplateResponse(request, "tags.html", {"title": "Tags", "tag_map": get_all_tags(), "pages": get_available_pages()})
+    return templates.TemplateResponse(request, "tags.html", {"title": "Tags", "tag_map": get_all_tags(), "pages": get_all_pages()})
 
 @router.get("/graph", response_class=HTMLResponse)
 async def view_graph(request: Request):
-    return templates.TemplateResponse(request, "graph.html", {"title": "Knowledge Graph", "pages": get_available_pages()})
+    return templates.TemplateResponse(request, "graph.html", {"title": "Knowledge Graph", "pages": get_all_pages()})
 
 @router.get("/chat")
 async def chat_page(request: Request):
-    """Renders the semantic chat interface."""
-    pages = get_all_pages()
-    return templates.TemplateResponse(
-        request=request, 
-        name="chat.html", 
-        context={"pages": pages}
-    )
+    return templates.TemplateResponse(request, "chat.html", {"pages": get_all_pages()})
 
 @router.get("/quiz", response_class=HTMLResponse)
 async def serve_quiz(request: Request):
     progress = load_progress()
     today = datetime.now().strftime("%Y-%m-%d")
     flashcards, due_cards = [], []
-    pattern = re.compile(r':::Q\n(.*?)\n:::A\n(.*?)\n:::', re.DOTALL)
     
-    for file_path in ARTICLES_DIR.glob("*.md"):
+    pattern = re.compile(r':::Q\r?\n(.*?)\r?\n:::A\r?\n(.*?)\r?\n:::', re.DOTALL)
+    
+    # Use RGLOB here to sweep inside all your new folders
+    for file_path in ARTICLES_DIR.rglob("*.md"):
         content = file_path.read_text(encoding="utf-8")
         for idx, (q, a) in enumerate(pattern.findall(content)):
-            card_id = f"{file_path.stem}-{idx}"
-            card_data = {"id": card_id, "question": markdown.markdown(q.strip()), "answer": markdown.markdown(a.strip()), "source": file_path.stem}
+            # Retain the folder structure in the flashcard ID
+            rel_stem = file_path.relative_to(ARTICLES_DIR).with_suffix("").as_posix()
+            card_id = f"{rel_stem}-{idx}"
+            card_data = {
+                "id": card_id, 
+                "question": markdown.markdown(q.strip()), 
+                "answer": markdown.markdown(a.strip()), 
+                "source": rel_stem
+            }
             if progress.get(card_id, {}).get("next_review", "2000-01-01") <= today:
                 due_cards.append(card_data)
 
     cards_to_review = due_cards[:5] if due_cards else []
-    return templates.TemplateResponse(request, "quiz.html", {"title": "Micro-Learning", "cards": cards_to_review, "pages": get_available_pages()})
+    
+    return templates.TemplateResponse(request, "quiz.html", {
+        "title": "Micro-Learning", 
+        "cards": cards_to_review, 
+        "pages": get_all_pages() 
+    })
