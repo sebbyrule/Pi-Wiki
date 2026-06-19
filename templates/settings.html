@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}System Settings{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto p-6 bg-white dark:bg-slate-900 rounded-lg shadow-sm border dark:border-slate-700">
+    <h1 class="text-2xl font-bold mb-6">⚙️ System Settings</h1>
+    
+    <div class="space-y-4">
+        <div>
+            <label class="block text-sm font-medium mb-1">Local AI URL</label>
+            <input type="text" id="ai-url" value="{{ LOCAL_AI_URL }}" class="w-full p-2 border rounded dark:bg-slate-800">
+        </div>
+        <div>
+            <label class="block text-sm font-medium mb-1">Dashboard URL</label>
+            <input type="text" id="dash-url" value="{{ HOMELAB_DASHBOARD_URL }}" class="w-full p-2 border rounded dark:bg-slate-800">
+        </div>
+        <button onclick="saveSettings()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Save Settings</button>
+    </div>
+</div>
+
+<script>
+    async function saveSettings() {
+        const settings = {
+            LOCAL_AI_URL: document.getElementById('ai-url').value,
+            HOMELAB_DASHBOARD_URL: document.getElementById('dash-url').value
+        };
+        const res = await fetch('/api/settings/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(settings)
+        });
+        if (res.ok) alert("Settings saved!");
+    }
+</script>
+{% endblock %}

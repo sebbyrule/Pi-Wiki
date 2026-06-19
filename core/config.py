@@ -33,3 +33,7 @@ if not DATA_FILE.exists():
         json.dump({}, f)
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+def update_config_env(key: str, value: str):
+    """Updates the environment variables for the current session."""
+    os.environ[key] = value
