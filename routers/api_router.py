@@ -34,6 +34,11 @@ class ChatQuery(BaseModel):
 class LinkSuggestionRequest(BaseModel):
     text: str
 
+class ApplyPageRequest(BaseModel):
+    action: str
+    path: str
+    content: str
+
 @router.post("/api/terminal")
 def run_terminal_command(req: CommandRequest, username: str = Depends(verify_user)):
     # Arbitrary shell execution is high-risk (RCE). It stays disabled unless the
@@ -121,6 +126,9 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
         if not messages:
             return {"reply": "⚠️ **Error:** No input was received by the backend."}
 
+        # Staged document changes proposed by write-tools this turn (Preview+Apply).
+        proposals = []
+
         # --- RAG grounding ---
         # Retrieve the most relevant wiki chunks for the user's question and inject
         # them as context so the assistant answers from the knowledge base. Set
@@ -181,32 +189,42 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
                 if "tool_calls" not in ai_message or not ai_message["tool_calls"]:
                     # Ensure we always safely return a string, even if content is None
                     final_text = ai_message.get("content") or ""
-                    return {"reply": final_text, "sources": sources}
-                
+                    return {"reply": final_text, "sources": sources, "proposals": proposals}
+
                 for tool_call in ai_message["tool_calls"]:
                     func_name = tool_call["function"]["name"]
                     try:
                         args = json.loads(tool_call["function"]["arguments"])
                     except json.JSONDecodeError:
                         args = {}
-                    
+
                     if func_name in plugin_functions:
                         try:
                             result = plugin_functions[func_name](**args)
-                            tool_output = json.dumps(result)
+                            # Write-tools return a "proposal": surface it to the user
+                            # for Preview+Apply instead of writing to disk. Feed the
+                            # model a benign acknowledgement so it finishes its turn.
+                            if isinstance(result, dict) and result.get("status") == "proposal":
+                                proposals.append(result)
+                                tool_output = json.dumps({
+                                    "status": "staged",
+                                    "message": "Change staged for the user to review and apply. Briefly tell the user what you drafted.",
+                                })
+                            else:
+                                tool_output = json.dumps(result)
                         except Exception as e:
                             tool_output = json.dumps({"error": str(e)})
                     else:
                         tool_output = json.dumps({"error": f"Tool '{func_name}' not found."})
-                        
+
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call["id"],
                         "name": func_name,
                         "content": tool_output
                     })
-                    
-        return {"reply": "I reached my maximum thinking limit while trying to execute those tools.", "sources": sources}
+
+        return {"reply": "I reached my maximum thinking limit while trying to execute those tools.", "sources": sources, "proposals": proposals}
         
     except Exception as e:
         # Always log the full trace server-side; only leak details to the browser
@@ -227,6 +245,24 @@ def index_entire_wiki(username: str = Depends(verify_user)):
         embed_document(safe_name, content)
         count += 1
     return {"status": "success", "message": f"Successfully vectorized {count} documents!"}
+
+@router.post("/api/pages/apply")
+async def apply_page_change(req: ApplyPageRequest, username: str = Depends(verify_user)):
+    """Apply an AI-proposed page create/edit after the user approves it in the UI.
+    Re-sanitizes server-side (never trusts the client) and writes + commits +
+    re-embeds so every change is versioned and searchable."""
+    from services.page_service import sanitize_page_path, write_page
+    safe = sanitize_page_path(req.path)
+    if not safe:
+        return {"error": "Invalid page path."}
+    if not (req.content or "").strip():
+        return {"error": "No content to write."}
+    action = "edited" if req.action == "edit" else "created"
+    try:
+        write_page(safe, req.content, f"{username} {action} {safe}.md via AI assistant")
+    except ValueError as e:
+        return {"error": str(e)}
+    return {"status": "success", "url": f"/wiki/{safe}", "path": safe}
 
 @router.post("/api/rag/suggest-link")
 def suggest_semantic_link(req: LinkSuggestionRequest, username: str = Depends(verify_user)):
