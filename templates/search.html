@@ -1,19 +1,42 @@
 {% extends "base.html" %}
 
-{% block title %}Search: {{ q }}{% endblock %}
+{% block title %}{% if q %}Search: {{ q }}{% else %}Search{% endif %}{% endblock %}
 
 {% block content %}
-    <h1 class="text-2xl font-bold mb-4">Search Results for "<span class="text-blue-600">{{ q }}</span>"</h1>
-    
+{% if q %}
+    <h1 class="text-2xl font-bold mb-1">Search results for "<span class="text-blue-600">{{ q }}</span>"</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mb-6">{{ results|length }} match{{ '' if results|length == 1 else 'es' }} · keyword + semantic</p>
+
     <ul class="space-y-3">
         {% for result in results %}
-            <li class="bg-gray-50 p-4 rounded border border-gray-200">
-                <a href="/wiki/{{ result }}" class="text-lg font-medium text-blue-600 hover:underline capitalize">
-                    {{ result.replace('-', ' ') }}
-                </a>
+            <li class="bg-white dark:bg-slate-900 p-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                <div class="flex items-center justify-between gap-3">
+                    <a href="/wiki/{{ result.name }}" class="text-lg font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                        {{ result.title }}
+                    </a>
+                    {% if result.match == 'title' %}
+                        <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">Title</span>
+                    {% elif result.match == 'content' %}
+                        <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">Text</span>
+                    {% else %}
+                        <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">Related</span>
+                    {% endif %}
+                </div>
+                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ result.name }}</p>
+                {% if result.snippet %}
+                    <p class="text-sm text-slate-600 dark:text-slate-300 mt-2">{{ result.snippet }}</p>
+                {% endif %}
             </li>
         {% else %}
-            <p class="text-gray-500 italic">No articles found matching your query.</p>
+            <p class="text-slate-500 italic">No articles found matching your query.</p>
         {% endfor %}
     </ul>
+{% else %}
+    <h1 class="text-2xl font-bold mb-4">Search</h1>
+    <form action="/search" method="GET" class="flex max-w-xl">
+        <input type="text" name="q" autofocus placeholder="Search your wiki…" class="flex-grow px-3 py-2 rounded-l border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:border-blue-500" />
+        <button type="submit" class="bg-blue-600 px-4 py-2 rounded-r text-sm font-medium hover:bg-blue-700 text-white">Search</button>
+    </form>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-3">Combines exact keyword matches with semantically related pages from your vector index.</p>
+{% endif %}
 {% endblock %}
