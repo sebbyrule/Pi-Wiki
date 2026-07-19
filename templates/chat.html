@@ -52,9 +52,9 @@
     // ---- Slash commands --------------------------------------------------
     const COMMANDS = {
         '/help':      { args: '',        desc: 'Show this list of commands' },
-        '/new':       { args: '<title>', desc: 'Draft a new wiki page',           rag: false },
-        '/edit':      { args: '<path>',  desc: 'Propose edits to an existing page', rag: false },
-        '/summarize': { args: '<path>',  desc: 'Summarize an existing page',        rag: false },
+        '/new':       { args: '<title>', desc: 'Draft a new wiki page',            rag: false, force: ['create_page'] },
+        '/edit':      { args: '<path>',  desc: 'Propose edits to an existing page', rag: false, force: ['read_page', 'edit_page'] },
+        '/summarize': { args: '<path>',  desc: 'Summarize an existing page',        rag: false, force: ['read_page'] },
         '/find':      { args: '<query>', desc: 'Search the wiki (full-text + semantic)' },
     };
     const EXPAND = {
@@ -174,7 +174,7 @@
 
         // Slash-command handling. `text` is what the model receives; `display`
         // is the concise command shown in the user's bubble.
-        let text = raw, display = null, ragOverride;
+        let text = raw, display = null, ragOverride, forceSeq = null;
         if (raw.startsWith('/')) {
             const sp = raw.indexOf(' ');
             const cmd = (sp === -1 ? raw : raw.slice(0, sp)).toLowerCase();
@@ -185,7 +185,8 @@
             if (!args) { inputStr.value = ''; appendError(`${cmd} needs an argument — try: ${cmd} ${COMMANDS[cmd].args}`); return; }
             text = EXPAND[cmd](args);
             display = raw;
-            ragOverride = COMMANDS[cmd].rag;  // write commands skip RAG noise
+            ragOverride = COMMANDS[cmd].rag;   // write commands skip RAG noise
+            forceSeq = COMMANDS[cmd].force || null;  // force the tool call(s)
         }
 
         const loader = document.getElementById('loading-indicator');
@@ -200,9 +201,11 @@
         loader.classList.remove('hidden');
 
         try {
+            const body = { messages: messages.map(m => ({ role: m.role, content: m.content })), use_rag: useRag };
+            if (forceSeq) body.force_sequence = forceSeq;
             const res = await fetch('/api/chat', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })), use_rag: useRag })
+                body: JSON.stringify(body)
             });
             const data = await res.json();
             loader.classList.add('hidden');
