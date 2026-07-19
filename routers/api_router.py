@@ -127,6 +127,14 @@ def _strip_code_fence(text: str) -> str:
     return t
 
 
+# Bounded budget for interactive page drafting. A wiki page is ~1-1.5k tokens;
+# reasoning models spend extra on thinking, so 3500 leaves headroom without
+# letting generation run for many minutes. The timeout must comfortably exceed
+# WRITE_MAX_TOKENS / (tokens-per-sec) on slow local hardware.
+WRITE_MAX_TOKENS = 3500
+WRITE_TIMEOUT = 360.0
+
+
 async def _handle_write_intent(intent: dict, client: httpx.AsyncClient):
     """Structured-output write path — bypasses native tool-calling entirely.
 
@@ -166,11 +174,19 @@ async def _handle_write_intent(intent: dict, client: httpx.AsyncClient):
         "model": config.LOCAL_AI_MODEL,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "temperature": 0.3,
-        "max_tokens": config.MAX_AI_TOKENS,
+        "max_tokens": WRITE_MAX_TOKENS,
     }
-    response = await client.post(config.LOCAL_AI_URL, json=payload)
     try:
+        response = await client.post(config.LOCAL_AI_URL, json=payload)
         content = response.json()["choices"][0]["message"]["content"].strip()
+    except httpx.TimeoutException:
+        return {
+            "reply": (
+                "⚠️ The model took too long to draft the page and timed out. This usually means a "
+                "large/slow local model. Try a smaller or faster model in LM Studio, or a shorter title."
+            ),
+            "sources": [], "proposals": [],
+        }
     except Exception:
         return {"reply": "⚠️ The model returned an unexpected response. Check the LM Studio logs.", "sources": [], "proposals": []}
 
@@ -202,7 +218,7 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
         # tool-calling so it works even when the model won't emit tool_calls.
         intent = data.get("intent")
         if isinstance(intent, dict) and intent.get("action"):
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=WRITE_TIMEOUT) as client:
                 return await _handle_write_intent(intent, client)
 
         messages = data.get("messages", [])
@@ -270,7 +286,7 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
         force_sequence = [t for t in (data.get("force_sequence") or []) if isinstance(t, str)]
         forced_idx = 0
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             for iteration in range(max_iterations):
                 payload = {
                     "model": config.LOCAL_AI_MODEL,

@@ -190,7 +190,7 @@
         inputStr.value = '';
 
         document.getElementById('loading-text').innerText = intent
-            ? (intent.action === 'summarize' ? 'Reading & summarizing…' : 'Drafting the page…')
+            ? (intent.action === 'summarize' ? 'Reading & summarizing…' : 'Drafting the page… (this can take a minute or two on local hardware)')
             : (useRag ? 'Searching vector memory & generating answer...' : 'Thinking...');
         loader.classList.remove('hidden');
 
