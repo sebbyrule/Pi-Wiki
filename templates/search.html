@@ -9,22 +9,22 @@
 
     <ul class="space-y-3">
         {% for result in results %}
-            <li class="bg-white dark:bg-slate-900 p-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+            <li class="p-4" style="background:var(--surface-2);border:1px solid var(--rule)">
                 <div class="flex items-center justify-between gap-3">
-                    <a href="/wiki/{{ result.name }}" class="text-lg font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                    <a href="/wiki/{{ result.name }}" class="hover:underline" style="font-family:var(--font-display);font-size:1.15rem;font-weight:600;color:var(--ink)">
                         {{ result.title }}
                     </a>
                     {% if result.match == 'title' %}
-                        <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">Title</span>
+                        <span class="search-badge" style="color:var(--accent);border-color:var(--accent)">Title</span>
                     {% elif result.match == 'content' %}
-                        <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">Text</span>
+                        <span class="search-badge" style="color:var(--muted)">Text</span>
                     {% else %}
-                        <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">Related</span>
+                        <span class="search-badge" style="color:#9a6b8f;border-color:#9a6b8f66">Related</span>
                     {% endif %}
                 </div>
-                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ result.name }}</p>
+                <p class="mt-1" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.03em;color:var(--muted)">{{ result.name }}</p>
                 {% if result.snippet %}
-                    <p class="text-sm text-slate-600 dark:text-slate-300 mt-2">{{ result.snippet }}</p>
+                    <p class="mt-2" style="color:var(--ink);opacity:.82;font-size:.95rem;line-height:1.6">{{ result.snippet }}</p>
                 {% endif %}
             </li>
         {% else %}
