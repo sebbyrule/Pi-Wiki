@@ -15,7 +15,7 @@ from services.sm2_service import SM2Score, update_card_score
 from services.graph_service import build_graph_data
 from services.markdown_service import render_markdown_file
 from services.ai_service import process_inbox_files
-from services.rag_service import embed_document, query_knowledge_base
+from services.rag_service import embed_document, query_knowledge_base, retrieve_context
 from services.plugin_service import load_plugins
 from pydantic import BaseModel
 # LOCAL_AI_URL = os.getenv("LOCAL_AI_URL", "http://host.docker.internal:1234/v1/chat/completions")
@@ -113,17 +113,42 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
     try:
         data = await request.json()
         messages = data.get("messages", [])
-        
+
         # Translate the frontend's 'query' into the LLM's 'messages' format
         if not messages and "query" in data:
             messages = [{"role": "user", "content": data["query"]}]
-            
+
         if not messages:
             return {"reply": "⚠️ **Error:** No input was received by the backend."}
-        
+
+        # --- RAG grounding ---
+        # Retrieve the most relevant wiki chunks for the user's question and inject
+        # them as context so the assistant answers from the knowledge base. Set
+        # use_rag=false in the request to fall back to a plain (ungrounded) chat.
+        sources = []
+        if data.get("use_rag", True):
+            query_text = data.get("query")
+            if not query_text:
+                for m in reversed(messages):
+                    if m.get("role") == "user" and isinstance(m.get("content"), str):
+                        query_text = m["content"]
+                        break
+            if query_text:
+                context_block, sources = retrieve_context(query_text)
+                if context_block:
+                    system_prompt = (
+                        "You are the Pi Wiki assistant. Answer the user's question using the "
+                        "CONTEXT below, which was retrieved from their personal wiki. Prefer the "
+                        "context over prior knowledge and cite the source page names you rely on. "
+                        "If the context does not contain the answer, say so plainly before "
+                        "answering from general knowledge.\n\n"
+                        f"CONTEXT:\n{context_block}"
+                    )
+                    messages = [{"role": "system", "content": system_prompt}] + messages
+
         plugin_functions, tools_schema = load_plugins()
         max_iterations = 5
-        
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             for iteration in range(max_iterations):
                 payload = {
@@ -156,7 +181,7 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
                 if "tool_calls" not in ai_message or not ai_message["tool_calls"]:
                     # Ensure we always safely return a string, even if content is None
                     final_text = ai_message.get("content") or ""
-                    return {"reply": final_text}
+                    return {"reply": final_text, "sources": sources}
                 
                 for tool_call in ai_message["tool_calls"]:
                     func_name = tool_call["function"]["name"]
@@ -181,7 +206,7 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
                         "content": tool_output
                     })
                     
-        return {"reply": "I reached my maximum thinking limit while trying to execute those tools."}
+        return {"reply": "I reached my maximum thinking limit while trying to execute those tools.", "sources": sources}
         
     except Exception as e:
         # Always log the full trace server-side; only leak details to the browser
