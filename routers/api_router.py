@@ -175,6 +175,13 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
         plugin_functions, tools_schema = load_plugins()
         max_iterations = 5
 
+        # Some local models narrate tool use (writing "I created the page") instead
+        # of emitting a real tool_call. For write commands the frontend sends a
+        # force_sequence (e.g. ["create_page"] or ["read_page","edit_page"]); we set
+        # tool_choice to compel that exact call until a proposal is actually staged.
+        force_sequence = [t for t in (data.get("force_sequence") or []) if isinstance(t, str)]
+        forced_idx = 0
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             for iteration in range(max_iterations):
                 payload = {
@@ -184,6 +191,15 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
                 }
                 if tools_schema:
                     payload["tools"] = tools_schema
+                    # Force the next required tool while the write flow hasn't
+                    # produced a proposal yet; then fall back to auto so the model
+                    # can write its final reply.
+                    if force_sequence and forced_idx < len(force_sequence) and not proposals:
+                        payload["tool_choice"] = {
+                            "type": "function",
+                            "function": {"name": force_sequence[forced_idx]},
+                        }
+                        forced_idx += 1
 
                 response = await client.post(config.LOCAL_AI_URL, json=payload)
                 
@@ -207,6 +223,16 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
                 if "tool_calls" not in ai_message or not ai_message["tool_calls"]:
                     # Ensure we always safely return a string, even if content is None
                     final_text = ai_message.get("content") or ""
+                    # If this was a write command but the model narrated instead of
+                    # calling the tool (no proposal staged), be honest rather than
+                    # showing its false "I created the page" claim.
+                    if force_sequence and not proposals:
+                        final_text = (
+                            "⚠️ **The model didn't actually call the write tool**, so nothing was staged "
+                            "and no page was created. It only described the change. This is a limitation of "
+                            "the current model/runtime's function-calling — try a model with reliable tool "
+                            "support, or enable tool use in LM Studio.\n\n---\n\n" + final_text
+                        )
                     return {"reply": final_text, "sources": sources, "proposals": proposals}
 
                 for tool_call in ai_message["tool_calls"]:
