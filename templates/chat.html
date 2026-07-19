@@ -81,19 +81,24 @@
                 </div>`;
             }
 
-            // 5. Append AI Message (Using marked.parse to render Markdown)
+            // THE FIX: Extract 'reply' instead of 'answer'
+            const aiText = data.reply || "No response received.";
+
+            // 5. Append AI Message
             history.innerHTML += `
                 <div class="flex gap-4">
                     <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs">AI</div>
                     <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30 p-4 rounded-lg rounded-tl-none w-full shadow-sm">
-                        <div class="prose dark:prose-invert prose-sm max-w-none text-sm">${marked.parse(data.answer)}</div>
+                        <div class="prose dark:prose-invert prose-sm max-w-none text-sm">${marked.parse(aiText)}</div>
                         ${sourceHtml}
                     </div>
                 </div>`;
                 
         } catch (err) {
+            // Log the actual Javascript error to the console and screen
+            console.error(err);
             loader.classList.add('hidden');
-            appendAIError("Fatal UI Error: Could not reach the backend API.");
+            appendAIError(`UI Rendering Error: ${err.message}`);
         }
         
         history.scrollTop = history.scrollHeight;
