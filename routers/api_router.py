@@ -17,6 +17,8 @@ from services.markdown_service import render_markdown_file
 from services.ai_service import process_inbox_files
 from services.rag_service import embed_document, query_knowledge_base, retrieve_context
 from services.plugin_service import load_plugins
+from services.page_service import read_page, page_exists, sanitize_page_path, slugify_title
+from services.ai_service import WRITER_SYSTEM_PROMPT
 from pydantic import BaseModel
 # LOCAL_AI_URL = os.getenv("LOCAL_AI_URL", "http://host.docker.internal:1234/v1/chat/completions")
 router = APIRouter()
@@ -113,10 +115,96 @@ async def export_article(page_name: str):
     export_path.write_text(standalone_html, encoding="utf-8")
     return FileResponse(path=export_path, filename=f"{safe_name}.html", media_type="text/html")
 
+def _strip_code_fence(text: str) -> str:
+    """Remove a ```lang ... ``` wrapper if the model fenced the whole document."""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        lines = t.split("\n")
+        lines = lines[1:]  # drop opening ``` / ```markdown
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        t = "\n".join(lines).strip()
+    return t
+
+
+async def _handle_write_intent(intent: dict, client: httpx.AsyncClient):
+    """Structured-output write path — bypasses native tool-calling entirely.
+
+    For /new, /edit, /summarize we ask the model for a single plain-text
+    completion (the page markdown or a summary) and wrap it into a proposal
+    ourselves. This works even when the runtime never emits tool_calls.
+    """
+    action = intent.get("action")
+
+    if action == "create":
+        title = (intent.get("title") or "").strip()
+        if not title:
+            return {"reply": "⚠️ I need a title to create a page.", "sources": [], "proposals": []}
+        path = slugify_title(title)
+        system = WRITER_SYSTEM_PROMPT
+        user = f'Write a complete wiki page titled "{title}". Output ONLY the Markdown document.'
+    elif action in ("edit", "summarize"):
+        path = sanitize_page_path(intent.get("path") or "")
+        current = read_page(path)
+        if current is None:
+            return {"reply": f"⚠️ The page `{path}` doesn't exist, so there's nothing to {action}.", "sources": [], "proposals": []}
+        if action == "summarize":
+            system = "You are a concise technical summarizer for a personal wiki."
+            user = f'Summarize the key points of this wiki page in 2-4 sentences:\n\n{current[:8000]}'
+        else:
+            system = WRITER_SYSTEM_PROMPT
+            user = (
+                "Revise the existing wiki page below. Keep all facts correct; improve clarity and "
+                "structure; ensure it has a `> **TL;DR:**` line and a `## Review` section of flashcards. "
+                "Output ONLY the complete revised Markdown document.\n\n"
+                f'CURRENT PAGE "{path}":\n\n{current}'
+            )
+    else:
+        return {"reply": "⚠️ Unknown write action.", "sources": [], "proposals": []}
+
+    payload = {
+        "model": config.LOCAL_AI_MODEL,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "temperature": 0.3,
+        "max_tokens": config.MAX_AI_TOKENS,
+    }
+    response = await client.post(config.LOCAL_AI_URL, json=payload)
+    try:
+        content = response.json()["choices"][0]["message"]["content"].strip()
+    except Exception:
+        return {"reply": "⚠️ The model returned an unexpected response. Check the LM Studio logs.", "sources": [], "proposals": []}
+
+    if action == "summarize":
+        return {"reply": content or "(no summary produced)", "sources": [path], "proposals": []}
+
+    content = _strip_code_fence(content)
+    if not content:
+        return {"reply": "⚠️ The model produced no content for the page.", "sources": [], "proposals": []}
+
+    proposal = {
+        "status": "proposal",
+        "action": "edit" if action == "edit" else "create",
+        "path": path,
+        "content": content,
+        "exists": page_exists(path),
+        "summary": f"{'Edit' if action == 'edit' else 'Create'} /wiki/{path}",
+    }
+    verb = "revised" if action == "edit" else "drafted"
+    return {"reply": f"I've {verb} **/wiki/{path}** — review it below and click Apply to save.", "sources": [], "proposals": [proposal]}
+
+
 @router.post("/api/chat")
 async def chat_with_agent(request: Request, username: str = Depends(verify_user)):
     try:
         data = await request.json()
+
+        # Structured write path (from /new, /edit, /summarize). Bypasses native
+        # tool-calling so it works even when the model won't emit tool_calls.
+        intent = data.get("intent")
+        if isinstance(intent, dict) and intent.get("action"):
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                return await _handle_write_intent(intent, client)
+
         messages = data.get("messages", [])
 
         # Translate the frontend's 'query' into the LLM's 'messages' format

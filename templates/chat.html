@@ -52,15 +52,10 @@
     // ---- Slash commands --------------------------------------------------
     const COMMANDS = {
         '/help':      { args: '',        desc: 'Show this list of commands' },
-        '/new':       { args: '<title>', desc: 'Draft a new wiki page',            rag: false, force: ['create_page'] },
-        '/edit':      { args: '<path>',  desc: 'Propose edits to an existing page', rag: false, force: ['read_page', 'edit_page'] },
-        '/summarize': { args: '<path>',  desc: 'Summarize an existing page',        rag: false, force: ['read_page'] },
+        '/new':       { args: '<title>', desc: 'Draft a new wiki page',            intent: a => ({ action: 'create', title: a }) },
+        '/edit':      { args: '<path>',  desc: 'Propose edits to an existing page', intent: a => ({ action: 'edit', path: a }) },
+        '/summarize': { args: '<path>',  desc: 'Summarize an existing page',        intent: a => ({ action: 'summarize', path: a }) },
         '/find':      { args: '<query>', desc: 'Search the wiki (full-text + semantic)' },
-    };
-    const EXPAND = {
-        '/new': a => `Draft a new wiki page titled "${a}". Write the complete Markdown (YAML frontmatter with tags, an H1 title, a "> **TL;DR:**" line, well-structured body sections, and a "## Review" section with flashcards), then stage it with the create_page tool for my approval.`,
-        '/edit': a => `Use read_page to read the wiki page "${a}", then propose an improved version with the edit_page tool. Keep all facts correct; improve clarity and structure, and add a TL;DR and Review flashcards if they are missing.`,
-        '/summarize': a => `Read the wiki page "${a}" with read_page and give me a concise 2-3 sentence summary of its key points.`,
     };
 
     function loadHistory() { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; } }
@@ -172,9 +167,9 @@
         const raw = inputStr.value.trim();
         if (!raw) return;
 
-        // Slash-command handling. `text` is what the model receives; `display`
-        // is the concise command shown in the user's bubble.
-        let text = raw, display = null, ragOverride, forceSeq = null;
+        // Slash-command handling. `display` is the concise command shown in the
+        // user's bubble; `intent` routes write commands to the structured path.
+        let text = raw, display = null, intent = null;
         if (raw.startsWith('/')) {
             const sp = raw.indexOf(' ');
             const cmd = (sp === -1 ? raw : raw.slice(0, sp)).toLowerCase();
@@ -183,26 +178,28 @@
             if (cmd === '/help') { inputStr.value = ''; showHelp(); return; }
             if (cmd === '/find') { if (args) window.location.href = '/search?q=' + encodeURIComponent(args); else appendError('/find needs a search query.'); return; }
             if (!args) { inputStr.value = ''; appendError(`${cmd} needs an argument — try: ${cmd} ${COMMANDS[cmd].args}`); return; }
-            text = EXPAND[cmd](args);
             display = raw;
-            ragOverride = COMMANDS[cmd].rag;   // write commands skip RAG noise
-            forceSeq = COMMANDS[cmd].force || null;  // force the tool call(s)
+            intent = COMMANDS[cmd].intent(args);
         }
 
         const loader = document.getElementById('loading-indicator');
-        // Write/generative commands force grounding off; otherwise honor the toggle.
-        const useRag = ragOverride === undefined ? document.getElementById('rag-toggle').checked : ragOverride;
+        const useRag = document.getElementById('rag-toggle').checked;
 
         messages.push({ role: 'user', content: text, display });
         saveHistory(); render();
         inputStr.value = '';
 
-        document.getElementById('loading-text').innerText = useRag ? 'Searching vector memory & generating answer...' : 'Thinking...';
+        document.getElementById('loading-text').innerText = intent
+            ? (intent.action === 'summarize' ? 'Reading & summarizing…' : 'Drafting the page…')
+            : (useRag ? 'Searching vector memory & generating answer...' : 'Thinking...');
         loader.classList.remove('hidden');
 
         try {
-            const body = { messages: messages.map(m => ({ role: m.role, content: m.content })), use_rag: useRag };
-            if (forceSeq) body.force_sequence = forceSeq;
+            // Write commands use the structured intent path (no tool-calling);
+            // everything else is normal grounded chat.
+            const body = intent
+                ? { intent }
+                : { messages: messages.map(m => ({ role: m.role, content: m.content })), use_rag: useRag };
             const res = await fetch('/api/chat', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)

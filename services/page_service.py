@@ -29,6 +29,12 @@ def sanitize_page_path(raw: str) -> str:
     return safe
 
 
+def slugify_title(title: str) -> str:
+    """Turn a human title into a page slug: lowercase, non-alphanumeric runs
+    become single hyphens (unlike sanitize_page_path, which drops spaces)."""
+    return re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+
+
 def page_file(path: str) -> Path:
     """Resolve a sanitized page path to its .md file, guaranteeing the result
     stays inside the articles directory (defense in depth)."""
