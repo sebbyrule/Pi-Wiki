@@ -129,10 +129,29 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
         # Staged document changes proposed by write-tools this turn (Preview+Apply).
         proposals = []
 
+        # Tool-governance directive — ALWAYS present so the model knows the write
+        # tools exist and, crucially, does not narrate a page creation it never
+        # actually performed. Without this the model tends to say "I created the
+        # page" without ever calling create_page (no proposal is produced).
+        system_parts = [
+            "You are the Pi Wiki assistant for the user's personal Markdown wiki. "
+            "You have tools: read_page (read a page), create_page (draft a NEW page), and "
+            "edit_page (revise an EXISTING page).\n"
+            "CRITICAL RULES:\n"
+            "- To create or modify a page you MUST call create_page or edit_page with the "
+            "COMPLETE Markdown content. These stage a proposal the user approves; they do not "
+            "save directly.\n"
+            "- NEVER claim you created, drafted, saved, or edited a page unless you actually "
+            "called the tool in this turn. If you did not call the tool, do not say a page exists.\n"
+            "- Before editing, call read_page first to preserve existing content.\n"
+            "- Good page content has YAML frontmatter tags, an H1 title, a `> **TL;DR:**` line, "
+            "body sections, and a `## Review` section of flashcards."
+        ]
+
         # --- RAG grounding ---
-        # Retrieve the most relevant wiki chunks for the user's question and inject
-        # them as context so the assistant answers from the knowledge base. Set
-        # use_rag=false in the request to fall back to a plain (ungrounded) chat.
+        # Retrieve the most relevant wiki chunks for the user's question and add
+        # them to the system context so answers are grounded. Set use_rag=false to
+        # skip retrieval (e.g. for generative/write requests where it's just noise).
         sources = []
         if data.get("use_rag", True):
             query_text = data.get("query")
@@ -144,15 +163,14 @@ async def chat_with_agent(request: Request, username: str = Depends(verify_user)
             if query_text:
                 context_block, sources = retrieve_context(query_text)
                 if context_block:
-                    system_prompt = (
-                        "You are the Pi Wiki assistant. Answer the user's question using the "
-                        "CONTEXT below, which was retrieved from their personal wiki. Prefer the "
-                        "context over prior knowledge and cite the source page names you rely on. "
-                        "If the context does not contain the answer, say so plainly before "
-                        "answering from general knowledge.\n\n"
+                    system_parts.append(
+                        "When ANSWERING A QUESTION, prefer the CONTEXT below (retrieved from the "
+                        "wiki) over prior knowledge and cite the source page names. If it doesn't "
+                        "contain the answer, say so before answering from general knowledge.\n\n"
                         f"CONTEXT:\n{context_block}"
                     )
-                    messages = [{"role": "system", "content": system_prompt}] + messages
+
+        messages = [{"role": "system", "content": "\n\n".join(system_parts)}] + messages
 
         plugin_functions, tools_schema = load_plugins()
         max_iterations = 5
