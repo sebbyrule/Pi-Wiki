@@ -9,43 +9,91 @@ from services.rag_service import embed_document
 # Cap on characters pulled from a single PDF before it is sent to the LLM.
 PDF_CHAR_LIMIT = 12000
 
+# --- Generation prompts -----------------------------------------------------
+# Kept as named module constants so they are easy to find and tune without
+# touching the control flow. The inbox synthesizer turns each raw note into a
+# structured wiki page: frontmatter -> title -> TL;DR -> body -> review cards.
+
+WRITER_SYSTEM_PROMPT = """You are an expert technical editor building a personal wiki. Turn the raw input into ONE clean Markdown document with this EXACT structure, in this order:
+
+1. YAML frontmatter with 2-5 lowercase topic tags. No square brackets.
+2. A single `# Title` (concise, specific — name the actual subject).
+3. A TL;DR line, written as: `> **TL;DR:** <one or two sentences>`.
+4. The cleaned, well-structured body (use `##` headings, lists, and code fences where useful).
+5. A final `## Review` section containing 3-6 spaced-repetition flashcards.
+
+TL;DR rules:
+- State the key takeaway as a direct factual claim. Lead with the substance.
+- BANNED openers: "This text/document/note...", "In this...", "The following...", "This covers/introduces/discusses...". Never describe the document; state what it TEACHES.
+
+Flashcard rules (one atomic fact per card):
+- Each card tests exactly ONE idea. No compound "and"/"or" questions.
+- Prefer "why/how/what-is" questions over yes/no or fill-in-the-blank.
+- The question must be self-contained (answerable without seeing this page).
+- Keep answers to 1-2 sentences. Skip trivia (exact dates/numbers) unless central.
+- Use this EXACT syntax, each card separated by a blank line:
+
+:::Q
+What does X do?
+:::A
+X does Y.
+:::
+
+Output ONLY the raw Markdown — no code fences around the whole document, no conversational filler.
+
+Example of the expected shape:
+---
+tags: networking, linux
+---
+# Reverse Proxy with Nginx
+
+> **TL;DR:** Nginx forwards outside requests to internal services by hostname, letting one public port serve many backends over TLS.
+
+## How it works
+A `server` block matches the incoming host and `proxy_pass` sends the request to an upstream address.
+
+## Review
+
+:::Q
+What directive forwards a request to an upstream service in Nginx?
+:::A
+`proxy_pass`, inside a `location` block.
+:::
+
+:::Q
+Why use a reverse proxy in front of multiple services?
+:::A
+It lets a single public entry point route to many internal backends and centralizes TLS termination.
+:::"""
+
+EVALUATOR_SYSTEM_PROMPT = """You are a strict QA evaluator for wiki documents. Grade the draft against this rubric and fail it if ANY item is violated:
+1. Frontmatter: valid YAML `tags:` with 2-5 lowercase tags, no square brackets.
+2. Structure: has a single `# Title`, a `> **TL;DR:**` line, body content, and a `## Review` section.
+3. TL;DR: states the takeaway directly; does NOT open with "This document/text...", "In this...", or similar meta-description.
+4. Flashcards: 3-6 cards in the exact `:::Q / :::A / :::` syntax; each tests ONE atomic fact; no yes/no or compound questions.
+5. Cleanliness: no conversational filler ("Here is...", "Sure!") and no code fence wrapping the whole document.
+
+Respond with ONLY a JSON object: {"passed": true/false, "feedback": "specific, actionable fixes"}"""
+
 
 async def generate_with_reflection(raw_text: str, client: httpx.AsyncClient) -> str:
     """Multi-Agent Reflection Loop: Writer -> Evaluator -> Reviser"""
-    
+
     # 1. THE WRITER AGENT
-    writer_prompt = (
-        "You are an expert technical editor. Format this raw text into clean, structured Markdown.\n"
-        "Rules:\n"
-        "1. Start with YAML frontmatter containing 'tags' (e.g. tags: hardware, networking).\n"
-        "2. Do NOT use square brackets in the tags.\n"
-        "3. Create a concise # H1 Title.\n"
-        "4. Output ONLY the raw markdown, no conversational filler."
-    )
-    
     messages = [
-        {"role": "system", "content": writer_prompt},
-        {"role": "user", "content": f"Format this raw text/transcript:\n\n{raw_text}"}
+        {"role": "system", "content": WRITER_SYSTEM_PROMPT},
+        {"role": "user", "content": f"Turn this raw note/transcript into a wiki document:\n\n{raw_text}"}
     ]
-    
-    payload = {"model": config.LOCAL_AI_MODEL, "messages": messages, "temperature": 0.2, "max_tokens": config.MAX_AI_TOKENS}
+
+    payload = {"model": config.LOCAL_AI_MODEL, "messages": messages, "temperature": 0.3, "max_tokens": config.MAX_AI_TOKENS}
     response = await client.post(config.LOCAL_AI_URL, json=payload, timeout=120.0)
     draft = response.json()["choices"][0]["message"]["content"].strip()
-    
+
     # 2. THE EVALUATOR AGENT
-    critic_prompt = (
-        "You are an AI Quality Assurance Evaluator. Inspect the following Markdown draft.\n"
-        "Grade it against this strict rubric:\n"
-        "1. Frontmatter: Must have valid YAML tags WITHOUT square brackets.\n"
-        "2. Formatting: Must have clear headers and no conversational filler (like 'Here is the formatted text').\n"
-        "3. Depth: If the document covers hardware, networking, or infrastructure topics, ensure it is detailed enough for a certification exam candidate.\n"
-        "Respond strictly with a JSON object: {\"passed\": true/false, \"feedback\": \"Specific instructions on what to fix\"}"
-    )
-    
     eval_payload = {
         "model": config.LOCAL_AI_MODEL,
         "messages": [
-            {"role": "system", "content": critic_prompt},
+            {"role": "system", "content": EVALUATOR_SYSTEM_PROMPT},
             {"role": "user", "content": f"Evaluate this draft:\n\n{draft}"}
         ],
         "temperature": 0.1
