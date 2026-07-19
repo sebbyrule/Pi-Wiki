@@ -4,9 +4,10 @@ from datetime import datetime
 from fastapi import APIRouter, Request, Depends, Form, BackgroundTasks
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
+import core.config as config
 from core.config import ARTICLES_DIR
 from core.security import verify_user
-from core.config import TEMPLATES_DIR, HOMELAB_DASHBOARD_URL, GITHUB_REPO_URL, SUPPORT_EMAIL, LOCAL_AI_URL
+from core.config import TEMPLATES_DIR, HOMELAB_DASHBOARD_URL, GITHUB_REPO_URL, SUPPORT_EMAIL
 from services.markdown_service import render_markdown_file, get_all_tags, get_backlinks
 from services.git_service import commit_changes
 from services.ai_service import process_with_local_ai
@@ -166,9 +167,13 @@ async def create_daily_journal(request: Request, username: str = Depends(verify_
     return RedirectResponse(url=f"/edit/journal/{today}", status_code=303)
 
 @router.get("/settings")
-async def settings_page(request: Request):
+async def settings_page(request: Request, username: str = Depends(verify_user)):
+    # Read live values from the config module so edits made via /api/settings/update
+    # are reflected here without a restart.
     return templates.TemplateResponse(request, "settings.html", {
         "pages": get_all_pages(),
-        "LOCAL_AI_URL": LOCAL_AI_URL,
-        "HOMELAB_DASHBOARD_URL": HOMELAB_DASHBOARD_URL
+        "LOCAL_AI_URL": config.LOCAL_AI_URL,
+        "LOCAL_AI_MODEL": config.LOCAL_AI_MODEL,
+        "MAX_AI_TOKENS": config.MAX_AI_TOKENS,
+        "HOMELAB_DASHBOARD_URL": config.HOMELAB_DASHBOARD_URL
     })

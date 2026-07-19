@@ -7,9 +7,9 @@ import httpx
 import base64
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Request
 from fastapi.responses import JSONResponse, FileResponse
-from core.config import ARTICLES_DIR, IMAGES_DIR, STATIC_DIR, INBOX_DIR
+import core.config as config
+from core.config import ARTICLES_DIR, IMAGES_DIR, STATIC_DIR, INBOX_DIR, update_config_env
 from core.security import verify_user
-from core.config import LOCAL_AI_URL, update_config_env
 from services.git_service import commit_changes
 from services.sm2_service import SM2Score, update_card_score
 from services.graph_service import build_graph_data
@@ -36,6 +36,13 @@ class LinkSuggestionRequest(BaseModel):
 
 @router.post("/api/terminal")
 def run_terminal_command(req: CommandRequest, username: str = Depends(verify_user)):
+    # Arbitrary shell execution is high-risk (RCE). It stays disabled unless the
+    # operator explicitly opts in via ALLOW_TERMINAL=true on a trusted host.
+    if not config.ALLOW_TERMINAL:
+        raise HTTPException(
+            status_code=403,
+            detail="Terminal execution is disabled. Set ALLOW_TERMINAL=true in .env to enable it.",
+        )
     try:
         result = subprocess.run(req.command, shell=True, capture_output=True, text=True, timeout=60)
         output = result.stdout.strip() if result.stdout else result.stderr.strip()
@@ -64,7 +71,7 @@ async def api_graph_data():
     return build_graph_data()
 
 @router.post("/api/score")
-async def score_card(score: SM2Score):
+async def score_card(score: SM2Score, username: str = Depends(verify_user)):
     update_card_score(score)
     return {"status": "success"}
 
@@ -102,7 +109,7 @@ async def export_article(page_name: str):
     return FileResponse(path=export_path, filename=f"{safe_name}.html", media_type="text/html")
 
 @router.post("/api/chat")
-async def chat_with_agent(request: Request):
+async def chat_with_agent(request: Request, username: str = Depends(verify_user)):
     try:
         data = await request.json()
         messages = data.get("messages", [])
@@ -120,14 +127,14 @@ async def chat_with_agent(request: Request):
         async with httpx.AsyncClient(timeout=120.0) as client:
             for iteration in range(max_iterations):
                 payload = {
-                    "model": "local-model",
+                    "model": config.LOCAL_AI_MODEL,
                     "messages": messages,
                     "temperature": 0.2
                 }
                 if tools_schema:
                     payload["tools"] = tools_schema
-                    
-                response = await client.post(LOCAL_AI_URL, json=payload)
+
+                response = await client.post(config.LOCAL_AI_URL, json=payload)
                 
                 try:
                     response_data = response.json()
@@ -177,10 +184,13 @@ async def chat_with_agent(request: Request):
         return {"reply": "I reached my maximum thinking limit while trying to execute those tools."}
         
     except Exception as e:
-        # If anything crashes, catch it and send the exact error back to the browser UI!
+        # Always log the full trace server-side; only leak details to the browser
+        # when DEBUG_MODE is on.
         import traceback
         print(f"[FATAL BACKEND CRASH]\n{traceback.format_exc()}")
-        return {"reply": f"⚠️ **Python Backend Crash:** `{str(e)}`\n\nCheck your Docker terminal logs for the full stack trace!"}
+        if config.DEBUG_MODE:
+            return {"reply": f"⚠️ **Python Backend Crash:** `{str(e)}`\n\nCheck your Docker terminal logs for the full stack trace!"}
+        return {"reply": "⚠️ **Error:** The backend hit an unexpected problem. Check the server logs for details."}
 
 @router.post("/api/rag/index-all")
 def index_entire_wiki(username: str = Depends(verify_user)):
@@ -194,8 +204,8 @@ def index_entire_wiki(username: str = Depends(verify_user)):
     return {"status": "success", "message": f"Successfully vectorized {count} documents!"}
 
 @router.post("/api/rag/suggest-link")
-def suggest_semantic_link(req: LinkSuggestionRequest):
-    if len(req.text) < 25: 
+def suggest_semantic_link(req: LinkSuggestionRequest, username: str = Depends(verify_user)):
+    if len(req.text) < 25:
         return {"suggestion": None}
     db_results = query_knowledge_base(req.text, n_results=1)
     sources = db_results.get("metadatas", [[]])[0]
@@ -215,7 +225,7 @@ async def upload_image_secure(file: UploadFile = File(...), username: str = Depe
     try:
         encoded = base64.b64encode(contents).decode('utf-8')
         payload = {
-            "model": "local-model",
+            "model": config.LOCAL_AI_MODEL,
             "messages": [
                 {"role": "user", "content": [
                     {"type": "text", "text": "Briefly describe the key technical elements of this image in one sentence."},
@@ -225,7 +235,7 @@ async def upload_image_secure(file: UploadFile = File(...), username: str = Depe
             "max_tokens": 100
         }
         async with httpx.AsyncClient() as client:
-            response = await client.post(LOCAL_AI_URL, json=payload, timeout=30.0)
+            response = await client.post(config.LOCAL_AI_URL, json=payload, timeout=30.0)
             ai_desc = response.json()["choices"][0]["message"]["content"].strip().replace('\n', ' ')
     except Exception:
         ai_desc = "Uploaded Image"
@@ -233,23 +243,32 @@ async def upload_image_secure(file: UploadFile = File(...), username: str = Depe
     return {"markdown": f"![{ai_desc}](/static/images/{safe_name})"}
 
 @router.post("/api/inbox/upload")
-async def dump_to_inbox(file: UploadFile = File(...)):
+async def dump_to_inbox(file: UploadFile = File(...), username: str = Depends(verify_user)):
     try:
         content = await file.read()
-        file_path = INBOX_DIR / file.filename
+        # Sanitize to a bare filename so a crafted name (e.g. "../../evil") cannot
+        # escape the inbox directory.
+        raw_name = os.path.basename(file.filename or "")
+        safe_name = "".join(c for c in raw_name if c.isalnum() or c in (".", "-", "_", " ")).strip()
+        if not safe_name or safe_name in (".", ".."):
+            return {"error": "Invalid filename provided."}
+        file_path = INBOX_DIR / safe_name
         file_path.write_bytes(content)
-        return {"status": "success", "filename": file.filename}
+        return {"status": "success", "filename": safe_name}
     except Exception as e:
         return {"error": str(e)}
     
 @router.post("/api/settings/update")
 async def update_settings(settings: dict, username: str = Depends(verify_user)):
-    """Updates system configuration variables."""
+    # update_config_env persists to .env, updates os.environ, and refreshes the
+    # live core.config attribute so the change takes effect without a restart.
+    allowed = {"LOCAL_AI_URL", "LOCAL_AI_MODEL", "HOMELAB_DASHBOARD_URL", "MAX_AI_TOKENS"}
+    updated = []
     try:
         for key, value in settings.items():
-            # Only allow updating specific keys for security
-            if key in ["LOCAL_AI_URL", "HOMELAB_DASHBOARD_URL"]:
+            if key in allowed:
                 update_config_env(key, value)
-        return {"status": "success"}
-    except Exception as e:
-        return {"error": str(e)}
+                updated.append(key)
+        return {"status": "success", "updated": updated}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid setting value: {e}"}
