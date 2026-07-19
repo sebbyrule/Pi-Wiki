@@ -50,3 +50,28 @@ def query_knowledge_base(query: str, n_results: int = 4):
         n_results=n_results
     )
     return results
+
+def retrieve_context(query: str, n_results: int = 4):
+    """Retrieve grounding context for a chat answer.
+
+    Returns a tuple of (context_block, sources) where context_block is a
+    formatted string of the most relevant chunks and sources is the list of
+    unique source page names (in relevance order) for citation.
+    """
+    results = query_knowledge_base(query, n_results=n_results)
+    documents = (results.get("documents") or [[]])[0]
+    metadatas = (results.get("metadatas") or [[]])[0]
+
+    if not documents:
+        return "", []
+
+    blocks = []
+    sources = []
+    for doc, meta in zip(documents, metadatas):
+        source = (meta or {}).get("source", "unknown")
+        if source not in sources:
+            sources.append(source)
+        blocks.append(f"[Source: {source}]\n{doc}")
+
+    context_block = "\n\n---\n\n".join(blocks)
+    return context_block, sources
