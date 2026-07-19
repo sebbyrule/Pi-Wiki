@@ -2,10 +2,10 @@
 {% block title %}Knowledge Graph{% endblock %}
 
 {% block content %}
-    <h1 class="text-2xl font-bold mb-4 dark:text-white">🕸️ Interactive Knowledge Graph</h1>
-    <p class="text-sm text-gray-500 mb-6">Visualizing bi-directional links and topic clusters across your documentation.</p>
+    <h1 class="page-head text-3xl mb-1">Knowledge Graph</h1>
+    <p class="mb-6" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)">Bi-directional links & topic clusters · double-click to travel</p>
 
-    <div id="mynetwork" class="w-full h-[600px] border border-gray-200 dark:border-slate-700 rounded-lg bg-gray-50 dark:bg-slate-900 shadow-inner"></div>
+    <div id="mynetwork" class="w-full h-[600px] panel"></div>
 
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <script>
@@ -13,19 +13,35 @@
             const response = await fetch('/api/graph_data');
             const data = await response.json();
 
+            // Warm categorical palette so tag-clusters stay distinct but on-theme
+            // (overrides vis-network's default primary-color group palette).
+            const palette = ['#9e3b2e','#b8823a','#5c7a4a','#4a6d7c','#8a5a6d','#a86a3d','#6b6f4a'];
+            const groupColor = {};
+            let ci = 0;
+            data.nodes.forEach(n => {
+                const g = n.group || 'article';
+                if (!(g in groupColor)) groupColor[g] = palette[ci++ % palette.length];
+                const c = groupColor[g];
+                n.color = { background: c, border: c, highlight: { background: c, border: c } };
+            });
+
             const container = document.getElementById('mynetwork');
             const graphData = {
                 nodes: new vis.DataSet(data.nodes),
                 edges: new vis.DataSet(data.edges)
             };
             
+            const isDark = document.documentElement.classList.contains('dark');
+            const accent = isDark ? '#dd7d54' : '#9e3b2e';
             const options = {
                 nodes: {
-                    shape: 'dot', size: 20, font: { size: 14, color: document.documentElement.classList.contains('dark') ? '#cbd5e1' : '#334155' },
-                    borderWidth: 2, shadow: true
+                    shape: 'dot', size: 18,
+                    font: { size: 14, color: isDark ? '#ece2cf' : '#231e16', face: 'IBM Plex Mono' },
+                    color: { background: accent, border: accent, highlight: { background: isDark ? '#e79771' : '#b8543f', border: accent } },
+                    borderWidth: 1.5, shadow: false
                 },
                 edges: {
-                    width: 1.5, color: { inherit: 'from', opacity: 0.6 }, smooth: { type: 'continuous' }
+                    width: 1, color: { color: isDark ? '#463c28' : '#c9bda2', highlight: accent, opacity: 0.7 }, smooth: { type: 'continuous' }
                 },
                 physics: {
                     forceAtlas2Based: { gravitationalConstant: -50, centralGravity: 0.01, springLength: 100, springConstant: 0.08 },

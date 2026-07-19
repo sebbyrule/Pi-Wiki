@@ -5,9 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %}{% endblock %} · Pi Wiki</title>
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,900&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/fonts.css" />
     <link rel="stylesheet" href="/static/syntax.css" />
     <link rel="manifest" href="/static/manifest.json">
     <script>
@@ -314,6 +312,44 @@
         font-family: var(--font-mono); font-size: 10px; letter-spacing: .2em;
         text-transform: uppercase; color: var(--muted);
       }
+
+      /* Shared page components (quiz/settings/edit/tags/graph) */
+      .page-head { font-family: var(--font-display); font-weight: 600; color: var(--ink); letter-spacing: -.02em; }
+      .panel { background: var(--surface-2); border: 1px solid var(--rule); }
+      .field {
+        width: 100%; background: var(--surface); color: var(--ink);
+        border: 1px solid var(--rule-2); padding: .6rem .75rem;
+        font-family: var(--font-mono); font-size: .9rem; transition: border-color .18s;
+      }
+      .field:focus { outline: none; border-color: var(--accent); }
+      .btn-solid {
+        font-family: var(--font-mono); font-size: 12.5px; letter-spacing: .06em;
+        text-transform: uppercase; background: var(--accent); color: #fff;
+        border: 1px solid var(--accent); padding: 9px 20px; cursor: pointer;
+        transition: background .18s, transform .15s;
+      }
+      .btn-solid:hover { background: var(--accent-2); }
+      .btn-solid:active { transform: translateY(1px); }
+      .btn-ghost {
+        font-family: var(--font-mono); font-size: 12px; letter-spacing: .05em;
+        text-transform: uppercase; color: var(--ink); background: transparent;
+        border: 1px solid var(--rule-2); padding: 6px 14px; cursor: pointer;
+        transition: border-color .18s, color .18s; display: inline-flex; align-items: center; gap: .45rem;
+      }
+      .btn-ghost svg { width: 14px; height: 14px; stroke: currentColor; }
+      .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+      .stat-tile { background: var(--surface-2); border: 1px solid var(--rule); padding: 1.1rem 1.25rem; text-align: center; flex: 1; }
+      .stat-num { font-family: var(--font-display); font-size: 2.6rem; font-weight: 600; color: var(--ink); line-height: 1; display: block; }
+      .stat-num.accent { color: var(--accent); }
+      .stat-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin-top: .45rem; display: block; }
+      .grade-btn {
+        flex: 1; font-family: var(--font-mono); font-size: 12px; letter-spacing: .05em;
+        text-transform: uppercase; padding: 11px; border: 1px solid var(--rule-2);
+        background: transparent; color: var(--ink); cursor: pointer; transition: border-color .16s, color .16s;
+      }
+      .grade-hard:hover { color: #c0392b; border-color: #c0392b; }
+      .grade-good:hover { color: var(--accent); border-color: var(--accent); }
+      .grade-easy:hover { color: #5c7a4a; border-color: #5c7a4a; }
 
       /* Search result match badge */
       .search-badge {

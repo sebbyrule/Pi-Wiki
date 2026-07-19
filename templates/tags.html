@@ -3,22 +3,23 @@
 {% block title %}Tag Cloud{% endblock %}
 
 {% block content %}
-    <h1 class="text-3xl font-bold mb-8">🏷️ Tag Cloud</h1>
+    <h1 class="page-head text-3xl mb-1">Tag Index</h1>
+    <p class="mb-8" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)">Every subject, cross-referenced</p>
 
     {% if not tag_map %}
-        <p class="text-gray-500 italic">No tags found. Add some to your pages using YAML frontmatter!</p>
+        <p style="color:var(--muted);font-style:italic">No tags found. Add some to your pages using YAML frontmatter.</p>
     {% endif %}
 
-    <div class="space-y-8">
+    <div class="space-y-6">
         {% for tag, pages in tag_map.items() %}
-            <div id="{{ tag }}" class="bg-gray-50 dark:bg-slate-900 p-6 rounded-lg border border-gray-100 dark:border-slate-700">
-                <h2 class="text-xl font-bold mb-4 text-blue-600 dark:text-blue-400 border-b border-gray-200 dark:border-slate-700 pb-2">
-                    #{{ tag }} <span class="text-sm text-gray-400 font-normal ml-2">({{ pages|length }} items)</span>
+            <div id="{{ tag }}" class="panel p-6">
+                <h2 class="mb-4 pb-2" style="border-bottom:1px solid var(--rule);font-family:var(--font-mono);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)">
+                    {{ tag }} <span style="color:var(--muted);margin-left:.5rem">· {{ pages|length }}</span>
                 </h2>
-                <ul class="space-y-2">
+                <ul class="space-y-1">
                     {% for p in pages %}
                         <li>
-                            <a href="/wiki/{{ p }}" class="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:underline capitalize font-medium">
+                            <a href="/wiki/{{ p }}" class="tree-link capitalize" style="font-size:14px">
                                 {{ p.replace('-', ' ') }}
                             </a>
                         </li>

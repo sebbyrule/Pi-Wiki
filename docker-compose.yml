@@ -14,6 +14,7 @@ services:
       - ./routers:/app/routers
       - ./services:/app/services
       - ./core:/app/core
+      - ./static:/app/static
       - ./main.py:/app/main.py
     env_file:
       - .env

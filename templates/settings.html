@@ -1,44 +1,23 @@
 {% extends "base.html" %} {% block title %}System Settings{% endblock %} {%
 block content %}
-<div
-  class="max-w-2xl mx-auto p-6 bg-white dark:bg-slate-900 rounded-lg shadow-sm border dark:border-slate-700"
->
-  <h1 class="text-2xl font-bold mb-6">⚙️ System Settings</h1>
+<div class="max-w-2xl">
+  <h1 class="page-head text-3xl mb-1">System Settings</h1>
+  <p class="mb-8" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)">Runtime configuration · written to .env</p>
 
-  <div class="space-y-4">
+  <div class="space-y-6">
     <div>
-      <label class="block text-sm font-medium mb-1">Local AI URL</label>
-      <input
-        type="text"
-        id="ai-url"
-        value="{{ LOCAL_AI_URL }}"
-        class="w-full p-2 border rounded dark:bg-slate-800"
-      />
+      <label class="block mb-2" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">Local AI URL</label>
+      <input type="text" id="ai-url" value="{{ LOCAL_AI_URL }}" class="field" />
     </div>
     <div>
-      <label class="block text-sm font-medium mb-1">Dashboard URL</label>
-      <input
-        type="text"
-        id="dash-url"
-        value="{{ HOMELAB_DASHBOARD_URL }}"
-        class="w-full p-2 border rounded dark:bg-slate-800"
-      />
+      <label class="block mb-2" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">Dashboard URL</label>
+      <input type="text" id="dash-url" value="{{ HOMELAB_DASHBOARD_URL }}" class="field" />
     </div>
     <div>
-      <label class="block text-sm font-medium mb-1">Max Context Tokens</label>
-      <input
-        type="number"
-        id="max-tokens"
-        value="{{ MAX_AI_TOKENS }}"
-        class="w-full p-2 border rounded dark:bg-slate-800"
-      />
+      <label class="block mb-2" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">Max Context Tokens</label>
+      <input type="number" id="max-tokens" value="{{ MAX_AI_TOKENS }}" class="field" />
     </div>
-    <button
-      onclick="saveSettings()"
-      class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-    >
-      Save Settings
-    </button>
+    <button onclick="saveSettings()" class="btn-solid">Save Settings</button>
   </div>
 </div>
 
