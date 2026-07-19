@@ -13,6 +13,8 @@ services:
       - ./templates:/app/templates
       - ./routers:/app/routers
       - ./services:/app/services
+      - ./core:/app/core
+      - ./main.py:/app/main.py
     env_file:
       - .env
     environment:
