@@ -30,9 +30,12 @@
         </div>
     </div>
 
-    <div class="flex gap-2">
-        <input type="text" id="chat-input" placeholder="Ask a question, or type / for commands" class="field flex-grow" style="font-family:var(--font-body);font-size:.95rem" onkeypress="if(event.key === 'Enter') sendChatMessage()">
-        <button onclick="sendChatMessage()" class="btn-solid">Send</button>
+    <div class="relative">
+        <div id="cmd-menu" class="hidden"></div>
+        <div class="flex gap-2">
+            <input type="text" id="chat-input" autocomplete="off" placeholder="Ask a question, or type / for commands" class="field flex-grow" style="font-family:var(--font-body);font-size:.95rem" oninput="onChatInput()" onkeydown="onChatKeydown(event)" onblur="setTimeout(hideMenu, 120)">
+            <button onclick="sendChatMessage()" class="btn-solid">Send</button>
+        </div>
     </div>
 </div>
 
@@ -49,9 +52,9 @@
     // ---- Slash commands --------------------------------------------------
     const COMMANDS = {
         '/help':      { args: '',        desc: 'Show this list of commands' },
-        '/new':       { args: '<title>', desc: 'Draft a new wiki page' },
-        '/edit':      { args: '<path>',  desc: 'Propose edits to an existing page' },
-        '/summarize': { args: '<path>',  desc: 'Summarize an existing page' },
+        '/new':       { args: '<title>', desc: 'Draft a new wiki page',           rag: false },
+        '/edit':      { args: '<path>',  desc: 'Propose edits to an existing page', rag: false },
+        '/summarize': { args: '<path>',  desc: 'Summarize an existing page',        rag: false },
         '/find':      { args: '<query>', desc: 'Search the wiki (full-text + semantic)' },
     };
     const EXPAND = {
@@ -164,13 +167,14 @@
     function discardProposal(mi, pi) { messages[mi].proposals[pi]._state = 'discarded'; render(); }
 
     async function sendChatMessage() {
+        hideMenu();
         const inputStr = document.getElementById('chat-input');
         const raw = inputStr.value.trim();
         if (!raw) return;
 
         // Slash-command handling. `text` is what the model receives; `display`
         // is the concise command shown in the user's bubble.
-        let text = raw, display = null;
+        let text = raw, display = null, ragOverride;
         if (raw.startsWith('/')) {
             const sp = raw.indexOf(' ');
             const cmd = (sp === -1 ? raw : raw.slice(0, sp)).toLowerCase();
@@ -181,10 +185,12 @@
             if (!args) { inputStr.value = ''; appendError(`${cmd} needs an argument — try: ${cmd} ${COMMANDS[cmd].args}`); return; }
             text = EXPAND[cmd](args);
             display = raw;
+            ragOverride = COMMANDS[cmd].rag;  // write commands skip RAG noise
         }
 
         const loader = document.getElementById('loading-indicator');
-        const useRag = document.getElementById('rag-toggle').checked;
+        // Write/generative commands force grounding off; otherwise honor the toggle.
+        const useRag = ragOverride === undefined ? document.getElementById('rag-toggle').checked : ragOverride;
 
         messages.push({ role: 'user', content: text, display });
         saveHistory(); render();
@@ -214,6 +220,53 @@
         }
     }
 
+    // ---- Slash-command autocomplete menu --------------------------------
+    let menuItems = [], menuIdx = -1;
+
+    function onChatInput() {
+        const v = document.getElementById('chat-input').value;
+        // Only while typing the command token itself (before the first space).
+        if (!v.startsWith('/') || v.includes(' ')) { hideMenu(); return; }
+        const prefix = v.toLowerCase();
+        menuItems = Object.entries(COMMANDS).filter(([k]) => k.startsWith(prefix));
+        if (!menuItems.length) { hideMenu(); return; }
+        menuIdx = 0;
+        drawMenu();
+    }
+
+    function drawMenu() {
+        const menu = document.getElementById('cmd-menu');
+        menu.innerHTML = menuItems.map(([k, v], i) =>
+            `<div class="cmd-item${i === menuIdx ? ' active' : ''}" onmousedown="event.preventDefault(); selectCmd(${i})">
+                <span class="cmd-key">${k}${v.args ? ' <span class="cmd-args">' + escapeHtml(v.args) + '</span>' : ''}</span>
+                <span class="cmd-desc">${escapeHtml(v.desc)}</span>
+            </div>`).join('');
+        menu.classList.remove('hidden');
+    }
+
+    function hideMenu() { const m = document.getElementById('cmd-menu'); if (m) m.classList.add('hidden'); menuItems = []; menuIdx = -1; }
+
+    function selectCmd(i) {
+        const [k, v] = menuItems[i];
+        const input = document.getElementById('chat-input');
+        input.value = v.args ? k + ' ' : k;
+        hideMenu();
+        input.focus();
+    }
+
+    function onChatKeydown(e) {
+        const open = !document.getElementById('cmd-menu').classList.contains('hidden');
+        if (open && menuItems.length) {
+            if (e.key === 'ArrowDown') { e.preventDefault(); menuIdx = (menuIdx + 1) % menuItems.length; drawMenu(); return; }
+            if (e.key === 'ArrowUp')   { e.preventDefault(); menuIdx = (menuIdx - 1 + menuItems.length) % menuItems.length; drawMenu(); return; }
+            if (e.key === 'Tab')       { e.preventDefault(); selectCmd(menuIdx); return; }
+            if (e.key === 'Escape')    { e.preventDefault(); hideMenu(); return; }
+            if (e.key === 'Enter')     { e.preventDefault(); selectCmd(menuIdx); return; }  // pick, don't send
+        } else if (e.key === 'Enter') {
+            sendChatMessage();
+        }
+    }
+
     (function initGrounding() {
         const saved = localStorage.getItem(RAG_KEY);
         const toggle = document.getElementById('rag-toggle');
@@ -235,5 +288,15 @@
     .proposal-actions { display: flex; gap: .6rem; padding: .7rem .8rem; }
     .proposal-tick { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #5c7a4a; }
     .proposal-open { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+
+    /* Slash-command autocomplete */
+    #cmd-menu { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; z-index: 30;
+        background: var(--surface); border: 1px solid var(--rule-2); box-shadow: 0 -8px 30px -12px rgba(0,0,0,.4); overflow: hidden; }
+    .cmd-item { display: flex; align-items: baseline; gap: .8rem; padding: .55rem .9rem; cursor: pointer; border-bottom: 1px solid var(--rule); }
+    .cmd-item:last-child { border-bottom: 0; }
+    .cmd-item.active { background: var(--surface-2); }
+    .cmd-key { font-family: var(--font-mono); font-size: 12.5px; color: var(--accent); white-space: nowrap; }
+    .cmd-args { color: var(--muted); }
+    .cmd-desc { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 </style>
 {% endblock %}
