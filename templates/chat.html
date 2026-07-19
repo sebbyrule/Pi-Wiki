@@ -6,7 +6,7 @@
     <div class="border-b dark:border-slate-700 pb-4 mb-4 flex items-start justify-between gap-4">
         <div>
             <h1 class="page-head text-3xl">Semantic Knowledge Chat</h1>
-            <p class="mt-1" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Answers grounded in your wiki, with citations</p>
+            <p class="mt-1" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Grounded in your wiki · can draft & edit pages · type / for commands</p>
         </div>
         <div class="flex items-center gap-4 flex-shrink-0 mt-1">
             <button onclick="newChat()" class="btn-ghost" title="Clear this conversation and start fresh">
@@ -31,7 +31,7 @@
     </div>
 
     <div class="flex gap-2">
-        <input type="text" id="chat-input" placeholder="e.g., How did I configure my Nginx reverse proxy?" class="field flex-grow" style="font-family:var(--font-body);font-size:.95rem" onkeypress="if(event.key === 'Enter') sendChatMessage()">
+        <input type="text" id="chat-input" placeholder="Ask a question, or type / for commands" class="field flex-grow" style="font-family:var(--font-body);font-size:.95rem" onkeypress="if(event.key === 'Enter') sendChatMessage()">
         <button onclick="sendChatMessage()" class="btn-solid">Send</button>
     </div>
 </div>
@@ -41,24 +41,32 @@
 <script>
     const STORE_KEY = 'piwiki-chat-history';
     const RAG_KEY = 'piwiki-chat-grounding';
-    const GREETING = "Hello! I have vectorized your knowledge base. What would you like to know?";
+    const GREETING = "Hello! Ask me anything about your wiki, or type **/help** to see what I can do — I can also draft and edit pages for you.";
 
-    // messages: [{role:'user'|'assistant', content:string, sources?:string[]}]
+    // messages: [{role, content, sources?, proposals?}]  (proposals are session-only, not persisted)
     let messages = loadHistory();
 
-    function loadHistory() {
-        try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
-        catch { return []; }
-    }
+    // ---- Slash commands --------------------------------------------------
+    const COMMANDS = {
+        '/help':      { args: '',        desc: 'Show this list of commands' },
+        '/new':       { args: '<title>', desc: 'Draft a new wiki page' },
+        '/edit':      { args: '<path>',  desc: 'Propose edits to an existing page' },
+        '/summarize': { args: '<path>',  desc: 'Summarize an existing page' },
+        '/find':      { args: '<query>', desc: 'Search the wiki (full-text + semantic)' },
+    };
+    const EXPAND = {
+        '/new': a => `Draft a new wiki page titled "${a}". Write the complete Markdown (YAML frontmatter with tags, an H1 title, a "> **TL;DR:**" line, well-structured body sections, and a "## Review" section with flashcards), then stage it with the create_page tool for my approval.`,
+        '/edit': a => `Use read_page to read the wiki page "${a}", then propose an improved version with the edit_page tool. Keep all facts correct; improve clarity and structure, and add a TL;DR and Review flashcards if they are missing.`,
+        '/summarize': a => `Read the wiki page "${a}" with read_page and give me a concise 2-3 sentence summary of its key points.`,
+    };
+
+    function loadHistory() { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; } }
     function saveHistory() {
-        localStorage.setItem(STORE_KEY, JSON.stringify(messages));
+        // Strip proposals — they are transient session actions, not chat content.
+        localStorage.setItem(STORE_KEY, JSON.stringify(messages.map(m => ({ role: m.role, content: m.content, sources: m.sources, display: m.display }))));
     }
 
-    function escapeHtml(str) {
-        const d = document.createElement('div');
-        d.textContent = str;
-        return d.innerHTML;
-    }
+    function escapeHtml(str) { const d = document.createElement('div'); d.textContent = str == null ? '' : str; return d.innerHTML; }
 
     function sourcesHtml(sources) {
         if (!sources || !sources.length) return '';
@@ -68,101 +76,144 @@
         </div>`;
     }
 
-    function userBubble(text) {
-        return `<div class="flex gap-4 flex-row-reverse">
-            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold text-xs">You</div>
-            <div class="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4 rounded-lg rounded-tr-none shadow-sm">
-                <p class="text-sm dark:text-gray-200">${escapeHtml(text)}</p>
+    function proposalHtml(p, mi, pi) {
+        if (p._state === 'discarded') return '';
+        const isOverwrite = p.exists && p.action === 'create';
+        if (p._state === 'applied') {
+            return `<div class="proposal-card applied">
+                <span class="proposal-tick">✓ Applied</span>
+                <a href="${p._url}" class="proposal-open">Open /wiki/${escapeHtml(p.path)} →</a>
+            </div>`;
+        }
+        return `<div class="proposal-card">
+            <div class="proposal-head">
+                <span class="proposal-verb">${p.action === 'edit' ? 'Edit' : (isOverwrite ? 'Overwrite' : 'New page')}</span>
+                <span class="proposal-path">/wiki/${escapeHtml(p.path)}</span>
+                ${isOverwrite ? '<span class="proposal-warn">replaces existing</span>' : ''}
+            </div>
+            <pre class="proposal-preview custom-scrollbar">${escapeHtml(p.content)}</pre>
+            <div class="proposal-actions">
+                <button class="btn-solid" onclick="applyProposal(${mi},${pi})">Apply</button>
+                <button class="btn-ghost" onclick="discardProposal(${mi},${pi})">Discard</button>
             </div>
         </div>`;
     }
 
-    function aiBubble(markdownText, sources) {
+    function userBubble(m) {
+        // Show the short command the user typed (display), not the expanded prompt.
+        return `<div class="flex gap-4 flex-row-reverse">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold text-xs">You</div>
+            <div class="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4 rounded-lg rounded-tr-none shadow-sm">
+                <p class="text-sm dark:text-gray-200">${escapeHtml(m.display || m.content)}</p>
+            </div>
+        </div>`;
+    }
+
+    function aiBubble(m, mi) {
+        const proposals = (m.proposals || []).map((p, pi) => proposalHtml(p, mi, pi)).join('');
         return `<div class="flex gap-4">
             <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs">AI</div>
             <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30 p-4 rounded-lg rounded-tl-none w-full shadow-sm">
-                <div class="prose dark:prose-invert prose-sm max-w-none text-sm">${marked.parse(markdownText || '')}</div>
-                ${sourcesHtml(sources)}
+                <div class="prose dark:prose-invert prose-sm max-w-none text-sm">${marked.parse(m.content || '')}</div>
+                ${sourcesHtml(m.sources)}
+                ${proposals}
             </div>
         </div>`;
     }
 
     function render() {
         const history = document.getElementById('chat-history');
-        if (!messages.length) {
-            history.innerHTML = aiBubble(GREETING, null);
-            return;
-        }
-        history.innerHTML = messages.map(m =>
-            m.role === 'user' ? userBubble(m.content) : aiBubble(m.content, m.sources)
-        ).join('');
+        if (!messages.length) { history.innerHTML = aiBubble({ content: GREETING }, -1); return; }
+        history.innerHTML = messages.map((m, i) => m.role === 'user' ? userBubble(m) : aiBubble(m, i)).join('');
         history.scrollTop = history.scrollHeight;
     }
 
-    function appendError(errorMsg) {
-        document.getElementById('chat-history').innerHTML += `
-            <div class="flex gap-4">
-                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-red-600 flex items-center justify-center text-white font-bold text-xs">!</div>
-                <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 p-4 rounded-lg rounded-tl-none w-full shadow-sm text-red-700 dark:text-red-400 text-sm">
-                    ${escapeHtml(errorMsg)}
-                </div>
-            </div>`;
+    function ephemeral(html) {
+        const history = document.getElementById('chat-history');
+        history.insertAdjacentHTML('beforeend', html);
+        history.scrollTop = history.scrollHeight;
+    }
+    function appendError(msg) {
+        ephemeral(`<div class="flex gap-4"><div class="flex-shrink-0 w-8 h-8 rounded-full bg-red-600 flex items-center justify-center text-white font-bold text-xs">!</div>
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 p-4 rounded-lg rounded-tl-none w-full text-red-700 dark:text-red-400 text-sm">${escapeHtml(msg)}</div></div>`);
+    }
+    function showHelp() {
+        const rows = Object.entries(COMMANDS).map(([k, v]) =>
+            `<div style="display:flex;gap:.75rem"><code style="color:var(--accent);min-width:11ch">${k} ${escapeHtml(v.args)}</code><span style="color:var(--muted)">${escapeHtml(v.desc)}</span></div>`).join('');
+        ephemeral(`<div class="flex gap-4"><div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs">AI</div>
+            <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30 p-4 rounded-lg rounded-tl-none w-full text-sm" style="font-family:var(--font-mono);font-size:12px;line-height:1.9">${rows}</div></div>`);
     }
 
     function newChat() {
         if (messages.length && !confirm('Clear this conversation?')) return;
-        messages = [];
-        saveHistory();
-        render();
+        messages = []; saveHistory(); render();
     }
+
+    async function applyProposal(mi, pi) {
+        const p = messages[mi].proposals[pi];
+        try {
+            const res = await fetch('/api/pages/apply', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: p.action, path: p.path, content: p.content })
+            });
+            const data = await res.json();
+            if (data.status === 'success') { p._state = 'applied'; p._url = data.url; render(); }
+            else appendError(data.error || 'Failed to apply change.');
+        } catch (e) { appendError('Could not reach the backend to apply the change.'); }
+    }
+    function discardProposal(mi, pi) { messages[mi].proposals[pi]._state = 'discarded'; render(); }
 
     async function sendChatMessage() {
         const inputStr = document.getElementById('chat-input');
-        const query = inputStr.value.trim();
-        if (!query) return;
+        const raw = inputStr.value.trim();
+        if (!raw) return;
 
-        const history = document.getElementById('chat-history');
+        // Slash-command handling. `text` is what the model receives; `display`
+        // is the concise command shown in the user's bubble.
+        let text = raw, display = null;
+        if (raw.startsWith('/')) {
+            const sp = raw.indexOf(' ');
+            const cmd = (sp === -1 ? raw : raw.slice(0, sp)).toLowerCase();
+            const args = sp === -1 ? '' : raw.slice(sp + 1).trim();
+            if (!COMMANDS[cmd]) { inputStr.value = ''; appendError(`Unknown command ${cmd}. Type /help.`); return; }
+            if (cmd === '/help') { inputStr.value = ''; showHelp(); return; }
+            if (cmd === '/find') { if (args) window.location.href = '/search?q=' + encodeURIComponent(args); else appendError('/find needs a search query.'); return; }
+            if (!args) { inputStr.value = ''; appendError(`${cmd} needs an argument — try: ${cmd} ${COMMANDS[cmd].args}`); return; }
+            text = EXPAND[cmd](args);
+            display = raw;
+        }
+
         const loader = document.getElementById('loading-indicator');
         const useRag = document.getElementById('rag-toggle').checked;
 
-        // Record + render the user's message
-        messages.push({ role: 'user', content: query });
-        saveHistory();
-        render();
+        messages.push({ role: 'user', content: text, display });
+        saveHistory(); render();
         inputStr.value = '';
 
-        document.getElementById('loading-text').innerText = useRag
-            ? 'Searching vector memory & generating answer...'
-            : 'Thinking...';
+        document.getElementById('loading-text').innerText = useRag ? 'Searching vector memory & generating answer...' : 'Thinking...';
         loader.classList.remove('hidden');
 
         try {
-            // Send the full conversation so the model has multi-turn context.
             const res = await fetch('/api/chat', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    messages: messages.map(m => ({ role: m.role, content: m.content })),
-                    use_rag: useRag
-                })
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })), use_rag: useRag })
             });
-
             const data = await res.json();
             loader.classList.add('hidden');
-
             if (data.error) { appendError(data.error); return; }
-
-            messages.push({ role: 'assistant', content: data.reply || 'No response received.', sources: data.sources || [] });
-            saveHistory();
-            render();
+            messages.push({
+                role: 'assistant',
+                content: data.reply || 'No response received.',
+                sources: data.sources || [],
+                proposals: (data.proposals || []).map(p => ({ ...p, _state: 'pending' }))
+            });
+            saveHistory(); render();
         } catch (err) {
-            console.error(err);
-            loader.classList.add('hidden');
+            console.error(err); loader.classList.add('hidden');
             appendError(`UI Rendering Error: ${err.message}`);
         }
     }
 
-    // Restore grounding-toggle preference
     (function initGrounding() {
         const saved = localStorage.getItem(RAG_KEY);
         const toggle = document.getElementById('rag-toggle');
@@ -172,4 +223,17 @@
 
     render();
 </script>
+
+<style>
+    .proposal-card { margin-top: .9rem; border: 1px solid var(--rule-2); background: var(--surface); }
+    .proposal-card.applied { display: flex; align-items: center; gap: 1rem; padding: .7rem 1rem; }
+    .proposal-head { display: flex; align-items: center; gap: .6rem; padding: .6rem .8rem; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
+    .proposal-verb { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; background: var(--accent); color: #fff; padding: 2px 8px; }
+    .proposal-path { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+    .proposal-warn { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: #c0392b; }
+    .proposal-preview { margin: 0; padding: .8rem; max-height: 15rem; overflow: auto; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; color: var(--muted); white-space: pre-wrap; word-break: break-word; background: var(--surface-2); }
+    .proposal-actions { display: flex; gap: .6rem; padding: .7rem .8rem; }
+    .proposal-tick { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #5c7a4a; }
+    .proposal-open { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+</style>
 {% endblock %}
