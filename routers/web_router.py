@@ -12,6 +12,7 @@ from services.markdown_service import render_markdown_file, get_all_tags, get_ba
 from services.git_service import commit_changes
 from services.ai_service import process_with_local_ai
 from services.sm2_service import load_progress
+from services.search_service import search_wiki
 
 router = APIRouter()
 
@@ -96,6 +97,16 @@ async def save_article(request: Request, page_path: str, bg_tasks: BackgroundTas
     commit_changes(f"{username} updated {safe_path}.md")
     bg_tasks.add_task(process_with_local_ai, file_path)
     return RedirectResponse(url=f"/wiki/{safe_path}", status_code=303)
+
+@router.get("/search", response_class=HTMLResponse)
+async def search(request: Request, q: str = ""):
+    results = search_wiki(q)
+    return templates.TemplateResponse(request, "search.html", {
+        "title": f"Search: {q}" if q else "Search",
+        "q": q.strip(),
+        "results": results,
+        "pages": get_all_pages(),
+    })
 
 @router.get("/tags", response_class=HTMLResponse)
 async def view_tags(request: Request):
