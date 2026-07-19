@@ -3,9 +3,16 @@
 
 {% block content %}
 <div class="flex flex-col h-[75vh]">
-    <div class="border-b dark:border-slate-700 pb-4 mb-4">
-        <h1 class="text-3xl font-bold tracking-tight">🧠 Semantic Knowledge Chat</h1>
-        <p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Ask questions, and the AI will answer using <b>only</b> your wiki's documents.</p>
+    <div class="border-b dark:border-slate-700 pb-4 mb-4 flex items-start justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold tracking-tight">🧠 Semantic Knowledge Chat</h1>
+            <p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Ask questions, and the AI will answer using <b>only</b> your wiki's documents.</p>
+        </div>
+        <label for="rag-toggle" class="flex items-center gap-2 cursor-pointer select-none flex-shrink-0 mt-1" title="When on, answers are grounded in your wiki with source citations. When off, it's a plain chat.">
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Wiki grounding</span>
+            <input type="checkbox" id="rag-toggle" checked class="h-4 w-8 appearance-none rounded-full bg-slate-300 dark:bg-slate-700 checked:bg-blue-600 relative transition-colors cursor-pointer
+                before:content-[''] before:absolute before:top-0.5 before:left-0.5 before:h-3 before:w-3 before:rounded-full before:bg-white before:transition-transform checked:before:translate-x-4">
+        </label>
     </div>
 
     <div id="chat-history" class="flex-grow overflow-y-auto space-y-6 mb-4 pr-4 custom-scrollbar">
@@ -57,11 +64,12 @@
         loader.classList.remove('hidden');
 
         try {
-            // 3. Call the API
+            // 3. Call the API (honor the wiki-grounding toggle)
+            const useRag = document.getElementById('rag-toggle').checked;
             const res = await fetch('/api/chat', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({query: query})
+                body: JSON.stringify({query: query, use_rag: useRag})
             });
             
             const data = await res.json();
